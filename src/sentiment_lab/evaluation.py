@@ -77,10 +77,13 @@ def evaluate_run(dataset, run):
                     "prompt": info["prompt_name"], "model": info["config"]["model"],
                     "run_state": info.get("state"), "run_signature": info["signature"],
                     "dataset_manifest_sha256": info["dataset_manifest_sha256"],
-                    "scope": "dev_subset" if len(selected) < len(full_gold) else "full_split",
+                    "scope": ("full_dataset" if info["split"] == "all" else
+                              "dev_subset" if len(selected) < len(full_gold) else "full_split"),
                     "prediction_file_sha256": file_hash(run / "predictions.jsonl") if predictions else None,
                     "observed_inference_seconds": sum(p.get("seconds", 0) for p in predictions),
                     "api_usage": [p["usage"] for p in predictions if p.get("usage")]})
+    if info["split"] == "all":
+        metrics["evaluation_note"] = "全部数据的基础评测（含此前使用过的开发样本），不作为独立保留测试集的成绩。"
     return metrics, rows
 
 
@@ -102,6 +105,7 @@ def save_evaluation(out, metrics, rows):
         f"- Macro-F1：{metrics['macro_f1']:.4f}。\n"
         f"- 无效/缺失：{metrics['invalid_or_missing']}，全部计错。\n"
         f"- 运行状态：{metrics['run_state']}；未完成运行的缺失项也已计错。\n\n"
+        + (metrics.get("evaluation_note", "") + "\n\n" if metrics.get("evaluation_note") else "") +
         "错误案例见 errors.csv；possible_reason 和 improvement_idea 留空，须结合原图人工分析。"
         "不能把程序自动计分当成已完成人工错误解释。\n", encoding="utf-8")
 

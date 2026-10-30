@@ -6,9 +6,9 @@
 
 实验代码入口是 `scripts/experiment.py`。支持 LLaVA 1.5 7B、Qwen2.5-VL 7B、DMXAPI 的 Responses / Chat Completions 图像接口，以及文字单模态、图文联合、基准提示与证据核对提示。
 
-**环境已装好、数据已上传：直接看[Qwen 与 LLaVA 实验运行指南](docs/experiment-guide.md)**。按顺序提供选卡、缓存解释、3 条试跑、完整开发集、47 条正式测试、11 条挑战集、评分、结果路径和断点续跑命令。当前项目是预训练模型推理评测，没有训练或微调入口。
+**当前操作：[全数据基础评测指南](docs/experiment-guide.md)**。使用 `run-all`，让 Qwen 用图文输入和基础提示跑完全部 70 条并自动评分，再运行 LLaVA。不需要手动切换数据划分、执行 freeze 或额外评分；原有数据和历史结果保留。当前项目是预训练模型推理评测，没有训练或微调入口。
 
-模型命令直接用 `CUDA_VISIBLE_DEVICES` 指定 GPU，使用 `nohup python -u` 后台运行；输出与报错写入 `runs/logs/`，并保存 PID。日志确认任务完成后再评分或运行下一组，详细监测命令见指南第 4.1 节。
+模型命令直接用 `CUDA_VISIBLE_DEVICES` 指定 GPU，使用 `nohup python -u` 后台运行；输出与报错写入 `runs/logs/`，并保存 PID。每个模型只加载一次，预测完自动评分；日志确认 Qwen 完成后再启动 LLaVA。整份数据的分数标记为全数据基础评测。
 
 首次安装 Conda 环境、数据放置、DMXAPI 配置和版本依据保留在[原版环境与实验参考](docs/experiment-reference.md)。基础环境文件为 `environment.yml`；创建后仍需安装 GPU 依赖。
 
@@ -21,16 +21,14 @@
 | `src/sentiment_lab/` | 数据隔离、推理适配、实验记录和评分实现 |
 | `tests/test_experiments.py` | 合成数据、模拟接口的 CPU 测试，无付费调用 |
 
-快速检查（在项目根目录运行）：
+Qwen 后台命令（将 GPU 编号 `0` 改为实际可用卡；完整操作和 LLaVA 命令见指南）：
 
 ```bash
-python -m pip install -r requirements.txt
-python -m unittest discover -s tests -v
-python scripts/experiment.py check-data
-python scripts/experiment.py run --config configs/qwen.locked.json --split dev --limit 3 --dry-run --out runs/preview-qwen
+mkdir -p runs/logs
+CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0 nohup python -u scripts/experiment.py run-all --config configs/qwen.locked.json --out runs/qwen-all-baseline >> runs/logs/qwen-all-baseline.log 2>&1 < /dev/null &
 ```
 
-`--dry-run` 只检查数据并写出请求预览；**没有模型预测，不能用于报告模型分数**。真实 GPU 推理和 DMXAPI 账户连通性仍需在配置完成后验证。仓库不包含图片、原始帖子、复核内容、运行输出或密钥；云端需另行放入本地已冻结的数据包，见运行指南。
+`run-all` 固定图文输入与 `baseline` 提示，按原始 dev/test/challenge 文件顺序读取全部样本，并在 `evaluation/` 保存汇总评分。历史分阶段命令保留在[旧版指南](docs/staged-evaluation-guide.md)。仓库不包含图片、原始帖子、复核内容、运行输出或密钥；云端需另行放入已冻结的数据包。
 
 ## 数据构建与复核记录
 

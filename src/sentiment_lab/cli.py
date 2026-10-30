@@ -32,6 +32,12 @@ def parser():
     run.add_argument("--resume", action="store_true")
     run.add_argument("--protocol", type=Path)
     run.add_argument("--env-file", type=Path)
+    full = commands.add_parser("run-all", help="Run baseline image-text inference on every frozen sample, then score automatically")
+    full.add_argument("--dataset", type=Path, default=ROOT / "datasets/mvsa_daily_v1")
+    full.add_argument("--config", type=Path, required=True)
+    full.add_argument("--out", type=Path, required=True)
+    full.add_argument("--resume", action="store_true")
+    full.add_argument("--env-file", type=Path)
     evaluate = commands.add_parser("evaluate", help="Score against separate frozen human labels")
     evaluate.add_argument("--dataset", type=Path, default=ROOT / "datasets/mvsa_daily_v1")
     evaluate.add_argument("--run", type=Path, required=True)
@@ -67,7 +73,25 @@ def create_json(path, obj):
 
 
 def dispatch(args):
-    if args.command == "run":
+    if args.command == "run-all":
+        from .runner import run_experiment
+        from .evaluation import evaluate_run, save_evaluation
+        load_env(args.env_file)
+        # Validate labels separately before loading a costly model; inference still reads inputs only.
+        inputs = load_inputs(args.dataset, "all")
+        load_gold(args.dataset, "all", inputs)
+        evaluation_out = args.out / "evaluation"
+        if evaluation_out.exists():
+            raise FileExistsError(f"Evaluation already exists at {evaluation_out}; keep it and use a new --out for a new run")
+        print(f"Full-dataset baseline: {len(inputs)} samples, multimodal input, baseline prompt. Model loads once.", flush=True)
+        info = run_experiment(dataset=args.dataset, config_path=args.config, prompt_path=prompt_path("baseline"),
+                              split="all", condition="multimodal", out=args.out, resume=args.resume)
+        metrics, rows = evaluate_run(args.dataset, args.out)
+        save_evaluation(evaluation_out, metrics, rows)
+        print(json.dumps({"state": info["state"], "samples": metrics["n"], "accuracy": metrics["accuracy"],
+                          "macro_f1": metrics["macro_f1"], "invalid_or_missing": metrics["invalid_or_missing"],
+                          "scope": metrics["scope"], "summary": str(evaluation_out / "summary.md")}, ensure_ascii=False), flush=True)
+    elif args.command == "run":
         from .runner import run_experiment
         load_env(args.env_file)
         info = run_experiment(dataset=args.dataset, config_path=args.config, prompt_path=prompt_path(args.prompt),

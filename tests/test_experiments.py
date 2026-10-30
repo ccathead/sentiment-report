@@ -192,6 +192,90 @@ class Fixture(unittest.TestCase):
         metrics, _ = evaluate_run(self.data, self.root / "run")
         self.assertEqual(metrics["invalid_or_missing"], 3)
 
+    def test_all_inputs_do_not_read_gold(self):
+        for path in (self.data / "labels").glob("*.jsonl"):
+            path.unlink()
+        self.run_job(split="all")
+        self.assertEqual(len(self.calls), 9)
+        self.assertTrue(all(image.is_file() for _, image in self.calls))
+
+    def test_all_rejects_duplicate_ids_between_parts(self):
+        path = self.data / "inputs/challenge.jsonl"
+        rows = read_jsonl(path)
+        rows[0]["id"] = "dev-0"
+        path.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
+        self.refresh_manifest()
+        with self.assertRaisesRegex(ValueError, "Duplicate"):
+            self.run_job(split="all")
+        self.assertEqual(self.calls, [])
+
+    def test_run_all_loads_model_once_and_scores_every_sample(self):
+        args = parser().parse_args(["run-all", "--dataset", str(self.data), "--config", str(self.config),
+                                    "--out", str(self.root / "run")])
+        with patch("sentiment_lab.backends.HFBackend", side_effect=self.factory) as backend:
+            dispatch(args)
+        backend.assert_called_once()
+        self.assertEqual(len(self.calls), 9)
+        self.assertTrue(all(path.is_file() for _, path in self.calls))
+        info = read_json(self.root / "run/run.json")
+        metrics = read_json(self.root / "run/evaluation/metrics.json")
+        self.assertEqual(info["state"], "completed")
+        self.assertEqual(info["split"], "all")
+        self.assertEqual(info["prompt_name"], "baseline")
+        self.assertIsNone(info["protocol_sha256"])
+        self.assertEqual(metrics["n"], 9)
+        self.assertEqual(metrics["scope"], "full_dataset")
+        self.assertAlmostEqual(metrics["accuracy"], 1 / 3)
+        self.assertEqual(metrics["missing"], 0)
+        self.assertIn("独立保留测试集", (self.root / "run/evaluation/summary.md").read_text(encoding="utf-8"))
+        with self.assertRaises(FileExistsError):
+            dispatch(args)
+
+    def test_run_all_stops_on_failure_without_final_score(self):
+        class Broken:
+            info = {}
+
+            def infer(self, prompt, image_path):
+                raise RuntimeError("Synthetic GPU failure")
+
+        args = parser().parse_args(["run-all", "--dataset", str(self.data), "--config", str(self.config),
+                                    "--out", str(self.root / "run")])
+        with patch("sentiment_lab.backends.HFBackend", return_value=Broken()):
+            with self.assertRaisesRegex(RuntimeError, "Run stopped"):
+                dispatch(args)
+        self.assertEqual(read_json(self.root / "run/run.json")["state"], "failed")
+        self.assertFalse((self.root / "run/evaluation").exists())
+
+    def test_run_all_can_resume_an_interrupted_run_and_score(self):
+        calls = []
+
+        class Interrupt:
+            info = {}
+
+            def infer(self, prompt, image_path):
+                calls.append(prompt)
+                if len(calls) == 2:
+                    raise KeyboardInterrupt()
+                return {"raw_answer": "positive"}
+
+        command = ["run-all", "--dataset", str(self.data), "--config", str(self.config),
+                   "--out", str(self.root / "run")]
+        with patch("sentiment_lab.backends.HFBackend", return_value=Interrupt()):
+            with self.assertRaises(KeyboardInterrupt):
+                dispatch(parser().parse_args(command))
+        with patch("sentiment_lab.backends.HFBackend", side_effect=self.factory):
+            dispatch(parser().parse_args(command + ["--resume"]))
+        self.assertEqual(len(self.calls), 8)  # One flushed record was reused, not predicted twice.
+        metrics = read_json(self.root / "run/evaluation/metrics.json")
+        self.assertEqual(metrics["n"], 9)
+        self.assertEqual(metrics["missing"], 0)
+
+    def test_all_scoring_checks_gold_for_every_part(self):
+        self.run_job(split="all")
+        (self.data / "labels/challenge.jsonl").write_text("{}", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "gold label hash"):
+            evaluate_run(self.data, self.root / "run")
+
 
 class MetricsTests(unittest.TestCase):
     def test_exact_parser_rejects_ambiguous_or_explanatory_answers(self):

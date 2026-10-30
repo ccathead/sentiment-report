@@ -23,7 +23,7 @@ def run_experiment(*, dataset, config_path, prompt_path, split, condition, out,
     template = Path(prompt_path).read_text(encoding="utf-8")
     prompt_sha = file_hash(prompt_path)
     manifest_sha = file_hash(dataset / "manifest.sha256.json")
-    if split != "dev" and not dry_run:
+    if split not in ("dev", "all") and not dry_run:
         if protocol is None:
             raise ValueError("Freeze the experiment protocol after dev checks, then pass --protocol for test/challenge")
         frozen = read_json(protocol)
@@ -38,6 +38,8 @@ def run_experiment(*, dataset, config_path, prompt_path, split, condition, out,
             "split": split, "condition": condition, "selected_ids": [r["id"] for r in inputs],
             "source_sha256": code["source_sha256"], "dry_run": dry_run,
             "protocol_sha256": file_hash(protocol) if protocol else None}
+    if split == "all":
+        spec["evaluation_purpose"] = "Descriptive full-dataset baseline; includes previously used development samples, not a held-out test."
     signature = object_hash(spec)
     if resume:
         if dry_run:
