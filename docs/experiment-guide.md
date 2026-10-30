@@ -31,22 +31,29 @@ conda activate sentiment-report
 
 终端通常会出现 `(sentiment-report)` 前缀。新开终端时重新执行这两条。
 
-### 1.2 查看 GPU 并指定一张
+### 1.2 每条启动命令直接指定 GPU
 
 ```bash
-nvidia-smi --query-gpu=index,uuid,name,memory.used,memory.free,utilization.gpu --format=csv
+mkdir -p runs/logs
+nvidia-smi
 ```
 
-确认哪张卡可供自己使用。之前的截图中四张卡都有进程，不能沿用当时的占用情况判断现在是否空闲。
+下面命令统一用 `CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0` 演示。**把每条命令中的 `0` 改成自己确认可用的 GPU 编号**；也可以直接填该卡的 `GPU-...` UUID。这里的 0 只是示例，不表示它当前空闲。不需要先全局 `export CUDA_VISIBLE_DEVICES`。
 
-复制获分配的那张卡的完整 UUID（`GPU-` 开头），执行下面两条；第一条会等待你粘贴 UUID 并按回车：
+`CUDA_VISIBLE_DEVICES` 只作用于这条命令启动的进程，模型配置中的 `"device": "cuda:0"` 保留不变。使用调度系统分配 GPU 时，应遵守分配结果。
 
-```bash
-read -r -p "粘贴可用 GPU 的 UUID（GPU- 开头）: " SELECTED_GPU_UUID
-export CUDA_VISIBLE_DEVICES="$SELECTED_GPU_UUID"
-```
+### 1.3 后台运行与日志约定
 
-这会让下面启动的模型只看到这一张卡。配置文件里的 `"device": "cuda:0"` 不用改：它代表当前可见的第一张卡。Qwen 和 LLaVA 按顺序运行，上一条命令结束、终端提示符回来后，再运行下一个模型。
+本指南用 `nohup`（不是 `nohop`）后台运行模型：
+
+- `python -u`：让 Python 输出及时写入日志。
+- `>> runs/logs/名称.log 2>&1`：普通输出和报错都追加到日志文件，保留旧日志。
+- `< /dev/null &`：不读取终端输入，在后台运行。
+- `echo $! > runs/logs/名称.pid`：保存后台进程号，便于监测。
+
+**后台启动后终端立即返回，不代表模型已完成。** 同一张卡上，确认上一组完成后再启动下一组；不要整页复制所有启动命令。不要对同一输出目录同时启动多个进程。已有前台 Qwen 正在跑时，先在其终端按 Ctrl+C 并确认进程退出，再按第 10 节选择新目录或续跑。
+
+日志、PID 均放在已被 Git 忽略的 `runs/logs/`。`nohup` 不会自动重试失败任务，也不是资源调度器；服务器重启、进程被系统终止时仍会停止。
 
 ## 2. 缓存是什么？只设置一次存放模型的位置
 
@@ -64,7 +71,7 @@ df -h "$HF_HOME"
 
 如果你已经把模型下载到了原来的缓存，请继续使用原路径，不要为了照抄本段而换目录。未设置 `HF_HOME` 时，默认通常为 `~/.cache/huggingface`（也受 `XDG_CACHE_HOME` 影响）；单独设置过 `HF_HUB_CACHE` 时，它决定模型仓库缓存位置。相关定义见 [Hugging Face 官方说明](https://huggingface.co/docs/huggingface_hub/v0.36.0/package_reference/environment_variables)。
 
-新开终端后，重新设置同一个 `HF_HOME`。**Conda 清华镜像只加速环境软件包获取，不会同时改变 Hugging Face 模型下载地址。**
+如果此前设置了自定义 `HF_HOME`，新开终端后重新设置同一路径；如果一直使用默认缓存，继续不设置即可。**Conda 清华镜像只加速环境软件包获取，不会同时改变 Hugging Face 模型下载地址。**
 
 ## 3. 安装验证是什么？确认环境和数据确实能用
 
@@ -73,7 +80,7 @@ df -h "$HF_HOME"
 ### 3.1 检查 GPU（首次运行前做一次）
 
 ```bash
-python - <<'PY'
+CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0 python -u - <<'PY' > runs/logs/gpu-check.log 2>&1
 import sys
 import torch
 import torchvision
@@ -95,7 +102,7 @@ print("GPU 运算检查:", torch.ones(1, device="cuda:0").item())
 PY
 ```
 
-预期：Python 路径属于 `sentiment-report` 环境，CUDA 可用为 `True`，GPU 数量为 `1`，名称为 A800，BF16 为 `True`，最后输出 `1.0`。这证明基础 GPU 调用可用，完整模型还需下面试跑。
+运行结束后用 `cat runs/logs/gpu-check.log` 查看。预期：Python 路径属于 `sentiment-report` 环境，CUDA 可用为 `True`，GPU 数量为 `1`，名称为 A800，BF16 为 `True`，最后输出 `1.0`。这证明基础 GPU 调用可用，完整模型还需下面试跑。
 
 ### 3.2 检查数据
 
@@ -119,26 +126,30 @@ PY
 上传压缩包不等于已解压到正确位置。执行：
 
 ```bash
-python scripts/experiment.py check-data
+python scripts/experiment.py check-data >> runs/logs/check-data.log 2>&1
 ```
 
-预期输出包含 `"status": "passed"`、`"checked_files": 155`，以及 `dev: 12`、`test: 47`、`challenge: 11`。如果已经检查通过，可跳过重复检查。
+用 `cat runs/logs/check-data.log` 查看。预期输出包含 `"status": "passed"`、`"checked_files": 155`，以及 `dev: 12`、`test: 47`、`challenge: 11`。如果已经检查通过，可跳过重复检查。
 
-如果数据放在别处，需要在后续每个 `check-data`、`run`、`evaluate`、`freeze`、`compare` 命令中追加 `--dataset /你的实际数据目录`；下面统一假设使用默认目录，避免路径混用。
+如果数据放在别处，需要在后续每个 `check-data`、`run`、`evaluate`、`freeze`、`compare` 命令中添加 `--dataset /你的实际数据目录`，放在日志重定向 `>>` 之前；下面统一假设使用默认目录，避免路径混用。
 
 ## 4. 先运行 Qwen：只试 3 条
 
 执行下面命令，会真正加载 Qwen2.5-VL-7B-Instruct，用开发集前 3 条图文做预测：
 
 ```bash
-python scripts/experiment.py run \
+CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0 nohup python -u scripts/experiment.py run \
   --config configs/qwen.locked.json \
   --split dev \
   --condition multimodal \
   --prompt baseline \
   --limit 3 \
-  --out runs/qwen-smoke
+  --out runs/qwen-smoke \
+  >> runs/logs/qwen-smoke.log 2>&1 < /dev/null &
+echo $! > runs/logs/qwen-smoke.pid
 ```
+
+日志：`runs/logs/qwen-smoke.log`。确认本组后台任务完成后，再进行评分或下一组运行（监测方法见第 4.1 节）。
 
 | 参数 | 含义 |
 |---|---|
@@ -149,20 +160,20 @@ python scripts/experiment.py run \
 | `--limit 3` | 只跑前 3 条，用于首次检查 |
 | `--out runs/qwen-smoke` | 把这次运行的记录存到这个新目录 |
 
-首次执行通常先下载模型，再加载模型，最后才出现样本进度。示意输出为 `[1/3] 样本ID: ok`，最后汇总包含 `"state": "completed"`。这里是预期格式，不是已获得的实验结果。
+首次执行通常先下载模型，再加载模型，最后才在日志中出现样本进度。示意输出为 `[1/3] 样本ID: ok`，最后汇总包含 `"state": "completed"`。这里是预期格式，不是已获得的实验结果。
 
 `ok` 只说明模型输出能被解析为分类标签，**不代表预测正确**。如果出现 `error` 或 `invalid_output`，先查看原始回答和报错。
 
-查看这 3 条预测：
+确认后台任务完成后，按需查看这 3 条预测：
 
 ```bash
 cat runs/qwen-smoke/predictions.jsonl
 ```
 
-评分并查看摘要：
+确认后台推理完成后，再评分并查看摘要：
 
 ```bash
-python scripts/experiment.py evaluate --run runs/qwen-smoke
+python scripts/experiment.py evaluate --run runs/qwen-smoke >> runs/logs/qwen-smoke-evaluate.log 2>&1
 cat runs/qwen-smoke/evaluation/summary.md
 ```
 
@@ -170,25 +181,59 @@ cat runs/qwen-smoke/evaluation/summary.md
 
 如果提示目录已经存在，按第 10 节选择续跑或新目录，不能直接重复覆盖。
 
-## 5. 再运行 LLaVA：同样试 3 条
+### 4.1 查看日志、进程与完成状态
 
-等 Qwen 命令结束后，在同一终端执行：
+只查看最近 50 行（不会持续刷屏）：
 
 ```bash
-python scripts/experiment.py run \
+tail -n 50 runs/logs/qwen-smoke.log
+```
+
+需要实时跟踪时再执行；按 Ctrl+C 只退出日志查看，不会停止后台模型：
+
+```bash
+tail -f runs/logs/qwen-smoke.log
+```
+
+查看保存的进程是否还存在，以及实际运行的命令：
+
+```bash
+ps -p "$(cat runs/logs/qwen-smoke.pid)" -o pid,etime,stat,args
+```
+
+查看程序记录的状态（启动早期文件可能尚未生成）：
+
+```bash
+python -c "import json; r=json.load(open('runs/qwen-smoke/run.json')); print('state:',r['state']); print('recorded:',r.get('recorded_samples',0)); print('failure:',r.get('failure_type'))"
+```
+
+`prepared` 通常表示已准备输入、正在初始化或下载/加载模型；`running` 表示进入推理；`completed` 表示运行循环结束；`failed` / `interrupted` 表示失败或中断。运行中 `recorded_samples` 不一定逐条更新，实时进度看日志里的 `[已完成/总数]` 或 `predictions.jsonl`。进程消失不等于成功，需同时检查日志和 `run.json`；即便 completed，也要通过评分查看无效输出数量。
+
+以上路径换成 `llava-smoke`、`qwen-dev-baseline` 等即可监测对应任务。续跑日志/PID 使用 `-resume` 后缀，运行结果仍在原输出目录。PID 可能被系统复用，若要停止任务，先核对 `ps` 显示的完整命令及所属任务。
+
+## 5. 再运行 LLaVA：同样试 3 条
+
+通过日志和 `run.json` 确认 Qwen 已完成、进程已退出后，再启动 LLaVA：
+
+```bash
+CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0 nohup python -u scripts/experiment.py run \
   --config configs/llava.json \
   --split dev \
   --condition multimodal \
   --prompt baseline \
   --limit 3 \
-  --out runs/llava-smoke
+  --out runs/llava-smoke \
+  >> runs/logs/llava-smoke.log 2>&1 < /dev/null &
+echo $! > runs/logs/llava-smoke.pid
 ```
+
+日志：`runs/logs/llava-smoke.log`。确认本组后台任务完成后，再进行评分或下一组运行（监测方法见第 4.1 节）。
 
 这次加载的是 LLaVA 1.5 7B，使用 FP16。第一次运行也可能下载它自己的模型文件。
 
 ```bash
 cat runs/llava-smoke/predictions.jsonl
-python scripts/experiment.py evaluate --run runs/llava-smoke
+python scripts/experiment.py evaluate --run runs/llava-smoke >> runs/logs/llava-smoke-evaluate.log 2>&1
 cat runs/llava-smoke/evaluation/summary.md
 ```
 
@@ -196,29 +241,65 @@ cat runs/llava-smoke/evaluation/summary.md
 
 ## 6. 跑完整开发集：每次 12 条
 
-这一阶段检查完整运行情况，并比较 Qwen 的两套提示。删除 `--limit 3` 就会跑完整开发集。下面三条依次执行；每条结束后确认没有报错，再执行下一条。
+这一阶段检查完整运行情况，并比较 Qwen 的两套提示。删除 `--limit 3` 就会跑完整开发集。下面三条依次执行；通过日志确认每个后台任务完成且没有报错，再执行下一组启动命令。
 
 ### 6.1 Qwen：图文输入，基础提示
 
 ```bash
-python scripts/experiment.py run --config configs/qwen.locked.json --split dev --condition multimodal --prompt baseline --out runs/qwen-dev-baseline
-python scripts/experiment.py evaluate --run runs/qwen-dev-baseline
+CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0 nohup python -u scripts/experiment.py run \
+  --config configs/qwen.locked.json \
+  --split dev \
+  --condition multimodal \
+  --prompt baseline \
+  --out runs/qwen-dev-baseline \
+  >> runs/logs/qwen-dev-baseline.log 2>&1 < /dev/null &
+echo $! > runs/logs/qwen-dev-baseline.pid
+```
+
+日志：`runs/logs/qwen-dev-baseline.log`。确认本组后台任务完成后，再进行评分或下一组运行（监测方法见第 4.1 节）。
+
+```bash
+python scripts/experiment.py evaluate --run runs/qwen-dev-baseline >> runs/logs/qwen-dev-baseline-evaluate.log 2>&1
 cat runs/qwen-dev-baseline/evaluation/summary.md
 ```
 
 ### 6.2 LLaVA：图文输入，基础提示
 
 ```bash
-python scripts/experiment.py run --config configs/llava.json --split dev --condition multimodal --prompt baseline --out runs/llava-dev-baseline
-python scripts/experiment.py evaluate --run runs/llava-dev-baseline
+CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0 nohup python -u scripts/experiment.py run \
+  --config configs/llava.json \
+  --split dev \
+  --condition multimodal \
+  --prompt baseline \
+  --out runs/llava-dev-baseline \
+  >> runs/logs/llava-dev-baseline.log 2>&1 < /dev/null &
+echo $! > runs/logs/llava-dev-baseline.pid
+```
+
+日志：`runs/logs/llava-dev-baseline.log`。确认本组后台任务完成后，再进行评分或下一组运行（监测方法见第 4.1 节）。
+
+```bash
+python scripts/experiment.py evaluate --run runs/llava-dev-baseline >> runs/logs/llava-dev-baseline-evaluate.log 2>&1
 cat runs/llava-dev-baseline/evaluation/summary.md
 ```
 
 ### 6.3 Qwen：图文输入，证据核对提示
 
 ```bash
-python scripts/experiment.py run --config configs/qwen.locked.json --split dev --condition multimodal --prompt evidence --out runs/qwen-dev-evidence
-python scripts/experiment.py evaluate --run runs/qwen-dev-evidence
+CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0 nohup python -u scripts/experiment.py run \
+  --config configs/qwen.locked.json \
+  --split dev \
+  --condition multimodal \
+  --prompt evidence \
+  --out runs/qwen-dev-evidence \
+  >> runs/logs/qwen-dev-evidence.log 2>&1 < /dev/null &
+echo $! > runs/logs/qwen-dev-evidence.pid
+```
+
+日志：`runs/logs/qwen-dev-evidence.log`。确认本组后台任务完成后，再进行评分或下一组运行（监测方法见第 4.1 节）。
+
+```bash
+python scripts/experiment.py evaluate --run runs/qwen-dev-evidence >> runs/logs/qwen-dev-evidence-evaluate.log 2>&1
 cat runs/qwen-dev-evidence/evaluation/summary.md
 ```
 
@@ -229,14 +310,14 @@ cat runs/qwen-dev-evidence/evaluation/summary.md
 比较两个模型的基础提示：
 
 ```bash
-python scripts/experiment.py compare --runs runs/llava-dev-baseline runs/qwen-dev-baseline --out runs/dev-model-comparison
+python scripts/experiment.py compare --runs runs/llava-dev-baseline runs/qwen-dev-baseline --out runs/dev-model-comparison >> runs/logs/dev-model-comparison.log 2>&1
 cat runs/dev-model-comparison/comparison.csv
 ```
 
 比较 Qwen 的基础提示和证据核对提示：
 
 ```bash
-python scripts/experiment.py compare --runs runs/qwen-dev-baseline runs/qwen-dev-evidence --out runs/qwen-dev-comparison
+python scripts/experiment.py compare --runs runs/qwen-dev-baseline runs/qwen-dev-evidence --out runs/qwen-dev-comparison >> runs/logs/qwen-dev-comparison.log 2>&1
 cat runs/qwen-dev-comparison/comparison.csv
 ```
 
@@ -257,34 +338,73 @@ python scripts/experiment.py freeze \
   --prompts baseline evidence \
   --conditions text multimodal \
   --note "$DEV_NOTE；计划比较：LLaVA与Qwen图文baseline、Qwen文字baseline与图文baseline、Qwen图文baseline与evidence；改进无效也报告。" \
-  --out plans/final.json
+  --out plans/final.json >> runs/logs/freeze.log 2>&1
 ```
 
-预期显示 `Protocol frozen: plans/final.json`。已有该文件时不要覆盖；沿用已有一致方案，或为新实验建立 `plans/final-v2.json` 并在所有对应运行中使用新路径。
+用 `cat runs/logs/freeze.log` 查看，成功时显示 `Protocol frozen: plans/final.json`。已有该文件时不要覆盖；沿用已有一致方案，或为新实验建立 `plans/final-v2.json` 并在所有对应运行中使用新路径。
 
 本段固定的是两套本地模型。如果课程主实验还要加入 DMX 闭源模型，应先完成其开发检查，把已验证的配置加入 `--configs` 再固定完整方案；详见[原版参考第 5、6 节](experiment-reference.md)。仅完成本指南的两套本地模型，不代表闭源对比也已完成。
 
 ### 7.2 Qwen：正式图文测试
 
 ```bash
-python scripts/experiment.py run --config configs/qwen.locked.json --split test --condition multimodal --prompt baseline --protocol plans/final.json --out runs/qwen-test-mm
-python scripts/experiment.py evaluate --run runs/qwen-test-mm
+CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0 nohup python -u scripts/experiment.py run \
+  --config configs/qwen.locked.json \
+  --split test \
+  --condition multimodal \
+  --prompt baseline \
+  --protocol plans/final.json \
+  --out runs/qwen-test-mm \
+  >> runs/logs/qwen-test-mm.log 2>&1 < /dev/null &
+echo $! > runs/logs/qwen-test-mm.pid
+```
+
+日志：`runs/logs/qwen-test-mm.log`。确认本组后台任务完成后，再进行评分或下一组运行（监测方法见第 4.1 节）。
+
+```bash
+python scripts/experiment.py evaluate --run runs/qwen-test-mm >> runs/logs/qwen-test-mm-evaluate.log 2>&1
 cat runs/qwen-test-mm/evaluation/summary.md
 ```
 
 ### 7.3 LLaVA：正式图文测试
 
 ```bash
-python scripts/experiment.py run --config configs/llava.json --split test --condition multimodal --prompt baseline --protocol plans/final.json --out runs/llava-test-mm
-python scripts/experiment.py evaluate --run runs/llava-test-mm
+CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0 nohup python -u scripts/experiment.py run \
+  --config configs/llava.json \
+  --split test \
+  --condition multimodal \
+  --prompt baseline \
+  --protocol plans/final.json \
+  --out runs/llava-test-mm \
+  >> runs/logs/llava-test-mm.log 2>&1 < /dev/null &
+echo $! > runs/logs/llava-test-mm.pid
+```
+
+日志：`runs/logs/llava-test-mm.log`。确认本组后台任务完成后，再进行评分或下一组运行（监测方法见第 4.1 节）。
+
+```bash
+python scripts/experiment.py evaluate --run runs/llava-test-mm >> runs/logs/llava-test-mm-evaluate.log 2>&1
 cat runs/llava-test-mm/evaluation/summary.md
 ```
 
 ### 7.4 Qwen：只输入文字，比较图片的作用
 
 ```bash
-python scripts/experiment.py run --config configs/qwen.locked.json --split test --condition text --prompt baseline --protocol plans/final.json --out runs/qwen-test-text
-python scripts/experiment.py evaluate --run runs/qwen-test-text
+CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0 nohup python -u scripts/experiment.py run \
+  --config configs/qwen.locked.json \
+  --split test \
+  --condition text \
+  --prompt baseline \
+  --protocol plans/final.json \
+  --out runs/qwen-test-text \
+  >> runs/logs/qwen-test-text.log 2>&1 < /dev/null &
+echo $! > runs/logs/qwen-test-text.pid
+```
+
+日志：`runs/logs/qwen-test-text.log`。确认本组后台任务完成后，再进行评分或下一组运行（监测方法见第 4.1 节）。
+
+```bash
+python scripts/experiment.py evaluate --run runs/qwen-test-text >> runs/logs/qwen-test-text-evaluate.log 2>&1
 cat runs/qwen-test-text/evaluation/summary.md
 ```
 
@@ -293,8 +413,21 @@ cat runs/qwen-test-text/evaluation/summary.md
 ### 7.5 Qwen：使用证据核对提示
 
 ```bash
-python scripts/experiment.py run --config configs/qwen.locked.json --split test --condition multimodal --prompt evidence --protocol plans/final.json --out runs/qwen-test-evidence
-python scripts/experiment.py evaluate --run runs/qwen-test-evidence
+CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0 nohup python -u scripts/experiment.py run \
+  --config configs/qwen.locked.json \
+  --split test \
+  --condition multimodal \
+  --prompt evidence \
+  --protocol plans/final.json \
+  --out runs/qwen-test-evidence \
+  >> runs/logs/qwen-test-evidence.log 2>&1 < /dev/null &
+echo $! > runs/logs/qwen-test-evidence.pid
+```
+
+日志：`runs/logs/qwen-test-evidence.log`。确认本组后台任务完成后，再进行评分或下一组运行（监测方法见第 4.1 节）。
+
+```bash
+python scripts/experiment.py evaluate --run runs/qwen-test-evidence >> runs/logs/qwen-test-evidence-evaluate.log 2>&1
 cat runs/qwen-test-evidence/evaluation/summary.md
 ```
 
@@ -303,9 +436,9 @@ cat runs/qwen-test-evidence/evaluation/summary.md
 ### 7.6 生成三份比较表
 
 ```bash
-python scripts/experiment.py compare --runs runs/llava-test-mm runs/qwen-test-mm --out runs/local-model-comparison
-python scripts/experiment.py compare --runs runs/qwen-test-text runs/qwen-test-mm --out runs/modality-comparison
-python scripts/experiment.py compare --runs runs/qwen-test-mm runs/qwen-test-evidence --out runs/prompt-comparison
+python scripts/experiment.py compare --runs runs/llava-test-mm runs/qwen-test-mm --out runs/local-model-comparison >> runs/logs/local-model-comparison.log 2>&1
+python scripts/experiment.py compare --runs runs/qwen-test-text runs/qwen-test-mm --out runs/modality-comparison >> runs/logs/modality-comparison.log 2>&1
+python scripts/experiment.py compare --runs runs/qwen-test-mm runs/qwen-test-evidence --out runs/prompt-comparison >> runs/logs/prompt-comparison.log 2>&1
 ```
 
 | 输出目录 | 回答的问题 |
@@ -318,30 +451,79 @@ python scripts/experiment.py compare --runs runs/qwen-test-mm runs/qwen-test-evi
 
 ## 8. 挑战集：单独运行 11 条
 
-使用相同固定方案，运行以下四组。每条成功结束后继续下一条：
+使用相同固定方案，运行以下四组。每组后台任务完成后再启动下一组，不能连续启动四组到同一张卡：
 
 ```bash
-python scripts/experiment.py run --config configs/qwen.locked.json --split challenge --condition multimodal --prompt baseline --protocol plans/final.json --out runs/qwen-challenge-mm
-python scripts/experiment.py run --config configs/llava.json --split challenge --condition multimodal --prompt baseline --protocol plans/final.json --out runs/llava-challenge-mm
-python scripts/experiment.py run --config configs/qwen.locked.json --split challenge --condition text --prompt baseline --protocol plans/final.json --out runs/qwen-challenge-text
-python scripts/experiment.py run --config configs/qwen.locked.json --split challenge --condition multimodal --prompt evidence --protocol plans/final.json --out runs/qwen-challenge-evidence
+CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0 nohup python -u scripts/experiment.py run \
+  --config configs/qwen.locked.json \
+  --split challenge \
+  --condition multimodal \
+  --prompt baseline \
+  --protocol plans/final.json \
+  --out runs/qwen-challenge-mm \
+  >> runs/logs/qwen-challenge-mm.log 2>&1 < /dev/null &
+echo $! > runs/logs/qwen-challenge-mm.pid
 ```
+
+日志：`runs/logs/qwen-challenge-mm.log`。确认本组后台任务完成后，再进行评分或下一组运行（监测方法见第 4.1 节）。
+
+```bash
+CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0 nohup python -u scripts/experiment.py run \
+  --config configs/llava.json \
+  --split challenge \
+  --condition multimodal \
+  --prompt baseline \
+  --protocol plans/final.json \
+  --out runs/llava-challenge-mm \
+  >> runs/logs/llava-challenge-mm.log 2>&1 < /dev/null &
+echo $! > runs/logs/llava-challenge-mm.pid
+```
+
+日志：`runs/logs/llava-challenge-mm.log`。确认本组后台任务完成后，再进行评分或下一组运行（监测方法见第 4.1 节）。
+
+```bash
+CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0 nohup python -u scripts/experiment.py run \
+  --config configs/qwen.locked.json \
+  --split challenge \
+  --condition text \
+  --prompt baseline \
+  --protocol plans/final.json \
+  --out runs/qwen-challenge-text \
+  >> runs/logs/qwen-challenge-text.log 2>&1 < /dev/null &
+echo $! > runs/logs/qwen-challenge-text.pid
+```
+
+日志：`runs/logs/qwen-challenge-text.log`。确认本组后台任务完成后，再进行评分或下一组运行（监测方法见第 4.1 节）。
+
+```bash
+CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0 nohup python -u scripts/experiment.py run \
+  --config configs/qwen.locked.json \
+  --split challenge \
+  --condition multimodal \
+  --prompt evidence \
+  --protocol plans/final.json \
+  --out runs/qwen-challenge-evidence \
+  >> runs/logs/qwen-challenge-evidence.log 2>&1 < /dev/null &
+echo $! > runs/logs/qwen-challenge-evidence.pid
+```
+
+日志：`runs/logs/qwen-challenge-evidence.log`。确认本组后台任务完成后，再进行评分或下一组运行（监测方法见第 4.1 节）。
 
 逐组评分：
 
 ```bash
-python scripts/experiment.py evaluate --run runs/qwen-challenge-mm
-python scripts/experiment.py evaluate --run runs/llava-challenge-mm
-python scripts/experiment.py evaluate --run runs/qwen-challenge-text
-python scripts/experiment.py evaluate --run runs/qwen-challenge-evidence
+python scripts/experiment.py evaluate --run runs/qwen-challenge-mm >> runs/logs/qwen-challenge-mm-evaluate.log 2>&1
+python scripts/experiment.py evaluate --run runs/llava-challenge-mm >> runs/logs/llava-challenge-mm-evaluate.log 2>&1
+python scripts/experiment.py evaluate --run runs/qwen-challenge-text >> runs/logs/qwen-challenge-text-evaluate.log 2>&1
+python scripts/experiment.py evaluate --run runs/qwen-challenge-evidence >> runs/logs/qwen-challenge-evidence-evaluate.log 2>&1
 ```
 
 生成挑战集比较表：
 
 ```bash
-python scripts/experiment.py compare --runs runs/llava-challenge-mm runs/qwen-challenge-mm --out runs/challenge-model-comparison
-python scripts/experiment.py compare --runs runs/qwen-challenge-text runs/qwen-challenge-mm --out runs/challenge-modality-comparison
-python scripts/experiment.py compare --runs runs/qwen-challenge-mm runs/qwen-challenge-evidence --out runs/challenge-prompt-comparison
+python scripts/experiment.py compare --runs runs/llava-challenge-mm runs/qwen-challenge-mm --out runs/challenge-model-comparison >> runs/logs/challenge-model-comparison.log 2>&1
+python scripts/experiment.py compare --runs runs/qwen-challenge-text runs/qwen-challenge-mm --out runs/challenge-modality-comparison >> runs/logs/challenge-modality-comparison.log 2>&1
+python scripts/experiment.py compare --runs runs/qwen-challenge-mm runs/qwen-challenge-evidence --out runs/challenge-prompt-comparison >> runs/logs/challenge-prompt-comparison.log 2>&1
 ```
 
 每次评分应为 `n=11`。挑战集与测试 47 条分开报告，不混成一个主测试分数。
@@ -384,8 +566,18 @@ python -m json.tool runs/qwen-test-mm/run.json
 `--out` 要求新目录。想从头做第二次实验时，换一个目录名：
 
 ```bash
-python scripts/experiment.py run --config configs/qwen.locked.json --split dev --condition multimodal --prompt baseline --limit 3 --out runs/qwen-smoke-v2
+CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0 nohup python -u scripts/experiment.py run \
+  --config configs/qwen.locked.json \
+  --split dev \
+  --condition multimodal \
+  --prompt baseline \
+  --limit 3 \
+  --out runs/qwen-smoke-v2 \
+  >> runs/logs/qwen-smoke-v2.log 2>&1 < /dev/null &
+echo $! > runs/logs/qwen-smoke-v2.pid
 ```
+
+日志：`runs/logs/qwen-smoke-v2.log`。确认本组后台任务完成后，再进行评分或下一组运行（监测方法见第 4.1 节）。
 
 随后评分和查看也要使用 `runs/qwen-smoke-v2`。
 
@@ -394,8 +586,19 @@ python scripts/experiment.py run --config configs/qwen.locked.json --split dev -
 使用原命令、原输出目录，并追加 `--resume`。例如原 Qwen 3 条试跑中断：
 
 ```bash
-python scripts/experiment.py run --config configs/qwen.locked.json --split dev --condition multimodal --prompt baseline --limit 3 --out runs/qwen-smoke --resume
+CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0 nohup python -u scripts/experiment.py run \
+  --config configs/qwen.locked.json \
+  --split dev \
+  --condition multimodal \
+  --prompt baseline \
+  --limit 3 \
+  --out runs/qwen-smoke \
+  --resume \
+  >> runs/logs/qwen-smoke-resume.log 2>&1 < /dev/null &
+echo $! > runs/logs/qwen-smoke-resume.pid
 ```
+
+日志：`runs/logs/qwen-smoke-resume.log`。确认本组后台任务完成后，再进行评分或下一组运行（监测方法见第 4.1 节）。
 
 必须保持代码、配置、提示、数据、样本范围和正式方案一致。已有 `error` 或 `invalid_output` 记录不会被自动重试；修复问题后若要重新预测这些样本，应保留失败记录并换新目录完整重跑。JSONL 尾行损坏时，程序会拒绝续跑，需要先备份并检查。
 
@@ -404,7 +607,7 @@ python scripts/experiment.py run --config configs/qwen.locked.json --split dev -
 首次评分默认创建 `evaluation/`。若此前已经评分，续跑后想重新评分，指定一个新目录：
 
 ```bash
-python scripts/experiment.py evaluate --run runs/qwen-smoke --out runs/qwen-smoke/evaluation-v2
+python scripts/experiment.py evaluate --run runs/qwen-smoke --out runs/qwen-smoke/evaluation-v2 >> runs/logs/qwen-smoke-evaluate.log 2>&1
 cat runs/qwen-smoke/evaluation-v2/summary.md
 ```
 
@@ -423,7 +626,7 @@ cat runs/qwen-smoke/evaluation-v2/summary.md
 | `invalid_output` | 查看 `predictions.jsonl` 的 `raw_answer`；解析只接受单一类别或仅含 `label` 的 JSON |
 | `FileExistsError` | 使用第 10.1–10.3 节的新目录或续跑方式 |
 | `Configuration or prompt changed after protocol freeze` | 配置或提示与固定方案不一致，回开发阶段检查并为新实验建立新方案 |
-| 终端断线 | 当前命令不保证在断线后继续；重新登录后先检查已有进程和运行记录，再决定是否续跑，避免重复启动 |
+| 终端断线 | `nohup` 通常可继续运行；重新登录后查看 PID、日志和运行记录，再决定是否续跑，避免重复启动 |
 
 ## 11. 可选操作与参考
 
@@ -431,7 +634,9 @@ cat runs/qwen-smoke/evaluation-v2/summary.md
 - **重新装环境、DMXAPI、固定版本、旧硬件快照和完整依据**：查阅[原版环境与实验参考](experiment-reference.md)。该文件是本次改写前的保留版本，其中“服务器安装待核验”等状态为历史记录；当前进度以[项目首页](../index.md)为准。
 
 ```bash
-python scripts/experiment.py run --config configs/qwen.locked.json --split dev --limit 3 --dry-run --out runs/preview-qwen
+python scripts/experiment.py run --config configs/qwen.locked.json --split dev --limit 3 --dry-run --out runs/preview-qwen >> runs/logs/preview-qwen.log 2>&1
 ```
+
+后台命令参考 [GNU nohup 文档](https://www.gnu.org/software/coreutils/manual/html_node/nohup-invocation.html)与 [Python -u 文档](https://docs.python.org/3.10/using/cmdline.html#cmdoption-u)。
 
 本指南的命令按项目实际命令解析、推理和评分代码核对；没有在本次文档修改中远程执行 GPU 推理，也不预先填写模型成绩。

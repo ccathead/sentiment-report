@@ -8,6 +8,8 @@
 
 **环境已装好、数据已上传：直接看[Qwen 与 LLaVA 实验运行指南](docs/experiment-guide.md)**。按顺序提供选卡、缓存解释、3 条试跑、完整开发集、47 条正式测试、11 条挑战集、评分、结果路径和断点续跑命令。当前项目是预训练模型推理评测，没有训练或微调入口。
 
+模型命令直接用 `CUDA_VISIBLE_DEVICES` 指定 GPU，使用 `nohup python -u` 后台运行；输出与报错写入 `runs/logs/`，并保存 PID。日志确认任务完成后再评分或运行下一组，详细监测命令见指南第 4.1 节。
+
 首次安装 Conda 环境、数据放置、DMXAPI 配置和版本依据保留在[原版环境与实验参考](docs/experiment-reference.md)。基础环境文件为 `environment.yml`；创建后仍需安装 GPU 依赖。
 
 | 文件 | 用途 |
