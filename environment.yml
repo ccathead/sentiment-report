@@ -1,7 +1,9 @@
 # Creates the Conda environment only. Install GPU packages afterward as documented.
 name: sentiment-report
 channels:
-  - conda-forge
+  # Original upstream: conda-forge. Use its TUNA mirror for this project.
+  - https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge
+  - nodefaults
 dependencies:
   - python=3.10
   - pip

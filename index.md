@@ -4,6 +4,8 @@
 
 ## 实验代码与仓库（2026-10-30 更新）
 
+- 环境创建记录：用户在 Conda 下载 `repodata.json` 阶段等待后手动中断；按用户要求将项目 `environment.yml` 切换至清华 TUNA conda-forge 镜像，运行指南同步提供只使用该镜像的创建命令。服务器连接当前未建立，镜像实际速度和环境创建结果待核验。
+
 - 已补充[私有仓库 SSH 克隆命令](docs/github-ssh-clone.md)：记录 Linux 服务器密钥生成、公钥添加、认证测试、克隆及 443 端口备用方案；服务器实际连接结果待核验。
 
 - 用户授权新建独立私有仓库：[ccathead/sentiment-report](https://github.com/ccathead/sentiment-report)。代码已推送 main，代码提交为 `ffdb765`，本地已跟踪 origin/main；远端私有状态已核验。本目录作为独立 Git 项目，不改动原 `mllm-learning` 仓库。

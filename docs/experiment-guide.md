@@ -59,10 +59,12 @@ python -V
 python -m pip --version
 ```
 
-`environment.yml` 只创建 Python 3.10 和 pip 基础环境，GPU 依赖继续按下节安装。如果服务器还没有同步此文件，可以用下面的命令代替 `conda env create`（两种创建方式只选一种）：
+`environment.yml` 只创建 Python 3.10 和 pip 基础环境，GPU 依赖继续按下节安装。2026-10-30 按用户要求，将项目 channel 从上游 conda-forge 改为清华 TUNA 的 conda-forge 镜像，并用 `nodefaults` 避免额外访问默认源。服务器此前停在索引下载阶段并被 Ctrl+C 中断；网络原因、镜像可达性与提速效果待核验。此修改不更改用户全局 `.condarc`。
+
+如果服务器还没有同步此文件，可以用下面的命令代替 `conda env create`（两种创建方式只选一种）；`--override-channels` 确保本次创建只使用指定镜像：
 
 ```bash
-conda create -n sentiment-report python=3.10 pip -y
+conda create -n sentiment-report python=3.10 pip --override-channels -c https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge -y
 conda activate sentiment-report
 ```
 
@@ -240,6 +242,8 @@ python scripts/experiment.py compare --runs runs/llava-test-mm runs/qwen-test-mm
 `errors.csv` 的原因与改进列留空，结合原图和文本填写至少两个真实案例，不能自动猜测模型内部原因。错误原因是分析假设，需要与可见证据区分。小样本、单人复核、AI 辅助预标注、样本筛选偏差与可能的模型预训练数据重合应在报告中说明。
 
 ## 8. 核验依据
+
+- [清华 TUNA Anaconda 镜像说明](https://mirrors.tuna.tsinghua.edu.cn/help/anaconda/)
 
 - [Conda 环境管理](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html)
 - [PyTorch 历史版本安装命令（2.6.0 / CUDA 12.4）](https://pytorch.org/get-started/previous-versions/)
