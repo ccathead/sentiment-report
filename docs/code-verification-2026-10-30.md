@@ -7,7 +7,7 @@
 - 本地核验：Windows，Python 3.12.14，Pillow 12.3.0；本机没有 PyTorch。
 - 云端目标：Python 3.10，PyTorch 2.6.0 / CUDA 12.4，Transformers 4.57.1；依赖版本在 requirements 文件固定，公开 PyPI 版本存在性已核对。新实验的云端安装与 GPU 推理仍待运行。
 - 数据：`mvsa_daily_v1`，dev=12 / test=47 / challenge=11；manifest SHA-256 为 `fb1ef169f7237f5c6ed6039398e3b302390144265231952ce4d402da53cdb8f8`。
-- 代码版本：本记录与首次实验实现同一 Git 提交保存；之后实际运行会在 `run.json` 自动记录 commit、源码哈希、环境、配置与命令。未将“尚未提交”的开发态冒充正式版本。
+- 实验代码提交：`ffdb76550f5315fe0a62df93f7ecd12fdfb9e7ff`。之后实际运行会在 `run.json` 自动记录 commit、源码哈希、环境、配置与命令。
 
 ## 已完成核验
 
@@ -30,4 +30,6 @@
 3. 完整开发集选择提示并填写冻结协议，再运行测试与挑战集。
 4. 保留实际错误记录及至少两个人工案例分析，不将测试夹具的模拟输出写入课程结果。
 
-GitHub Actions 配置只执行 CPU 测试，不读取数据、下载模型或访问 DMXAPI。其远端执行状态以 GitHub 页面实际结果为准。
+GitHub Actions 只执行 CPU 测试，不读取数据、下载模型或访问 DMXAPI。首次提交已在 Ubuntu / Python 3.10 / requirements.txt 固定依赖下通过[远端自动测试](https://github.com/ccathead/sentiment-report/actions/runs/41019019535)，状态为 success。
+
+仓库已确认是 private，远端 main 已收到上述代码提交。本地默认分支 main 已设置跟踪 origin/main。
