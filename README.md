@@ -6,7 +6,9 @@
 
 实验代码入口是 `scripts/experiment.py`。支持 LLaVA 1.5 7B、Qwen2.5-VL 7B、DMXAPI 的 Responses / Chat Completions 图像接口，以及文字单模态、图文联合、基准提示与证据核对提示。
 
-**从这里开始：[实验运行指南](docs/experiment-guide.md)**。运行指南包含 A800 服务器的 Conda 环境创建、GPU 选择、数据放置、API 配置、开发集检查、冻结方案、正式测试与结果比较的完整命令。基础环境文件为 `environment.yml`；创建后仍需按指南安装 GPU 依赖。
+**环境已装好、数据已上传：直接看[Qwen 与 LLaVA 实验运行指南](docs/experiment-guide.md)**。按顺序提供选卡、缓存解释、3 条试跑、完整开发集、47 条正式测试、11 条挑战集、评分、结果路径和断点续跑命令。当前项目是预训练模型推理评测，没有训练或微调入口。
+
+首次安装 Conda 环境、数据放置、DMXAPI 配置和版本依据保留在[原版环境与实验参考](docs/experiment-reference.md)。基础环境文件为 `environment.yml`；创建后仍需安装 GPU 依赖。
 
 | 文件 | 用途 |
 |---|---|
