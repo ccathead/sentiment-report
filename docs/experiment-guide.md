@@ -13,14 +13,20 @@ conda activate sentiment-report
 mkdir -p runs/logs
 ```
 
-本页命令要求更新后的 `run-all` 功能。数据默认位于 `datasets/mvsa_daily_v1/`，不需要移动或重新划分数据。此前的 `qwen-dev-baseline`、`qwen-dev-evidence` 等结果保留；本次使用新的输出目录。
+你提供的 `run --split dev` 命令是此前已跑通的开发集运行方式；本页沿用其环境设置，使用 `run-all` 完成上一步确定的全部 70 条评测。本页命令要求更新后的 `run-all` 功能。数据默认位于 `datasets/mvsa_daily_v1/`，不需要移动或重新划分数据。此前的 `qwen-dev-baseline`、`qwen-dev-evidence` 等结果保留；本次使用新的输出目录。
 
-下面命令中的 `CUDA_VISIBLE_DEVICES=0` 是示例，**把 0 改成你确认可用的 GPU 编号**，也可直接填写 GPU UUID。模型配置中的 `cuda:0` 不用改。保持已有模型缓存路径即可，不需要清理或重新设置缓存。
+按用户已跑通的命令，当前统一使用 **GPU 2**、`HF_HOME=/data/X-D-Lab/ty/.cache/huggingface` 和 `HF_HUB_OFFLINE=1`。每条启动命令都直接带上这些设置，不需要提前全局 export。模型配置中的 `cuda:0` 不用改；GPU 2 是否仍可用需以实际运行时状态为准。
+
+`HF_HUB_OFFLINE=1` 表示从已有缓存加载，不访问 Hugging Face 下载文件。用户已确认 Qwen 下载完成并用该设置跑通过。相同设置用于 LLaVA 时，其配置指定版本的完整权重、处理器和分词器文件也必须在该缓存中；LLaVA 缓存是否齐全待核验。如果尚未下载 LLaVA，首次运行把它那条命令的 `HF_HUB_OFFLINE=1` 改为 `HF_HUB_OFFLINE=0`，允许下载到相同缓存。
 
 ## 2. Qwen：一条命令跑完全部数据并评分
 
 ```bash
-CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0 nohup python -u scripts/experiment.py run-all \
+CUDA_DEVICE_ORDER=PCI_BUS_ID \
+CUDA_VISIBLE_DEVICES=2 \
+HF_HOME=/data/X-D-Lab/ty/.cache/huggingface \
+HF_HUB_OFFLINE=1 \
+nohup python -u scripts/experiment.py run-all \
   --config configs/qwen.locked.json \
   --out runs/qwen-all-baseline \
   >> runs/logs/qwen-all-baseline.log 2>&1 < /dev/null &
@@ -30,7 +36,7 @@ echo $! > runs/logs/qwen-all-baseline.pid
 这条命令会自动完成：
 
 1. 检查全部输入、图片和人工标签的对应关系及哈希。
-2. 加载 Qwen2.5-VL-7B-Instruct（模型只加载一次；缺少权重时先下载）。
+2. 从已下载的缓存加载 Qwen2.5-VL-7B-Instruct，模型只加载一次。离线模式下缺少文件会报错，不会自动下载。
 3. 按原文件顺序读取全部 70 条图片与文本，固定使用 `prompts/baseline.txt`。
 4. 保存每条预测，随后自动计算 Accuracy、Macro-F1、混淆矩阵和错误样本。
 
@@ -60,8 +66,14 @@ cat runs/qwen-all-baseline/evaluation/summary.md
 
 ## 3. Qwen 完成后，再运行 LLaVA
 
+此命令也开启离线加载，需先确认 LLaVA 已下载到相同缓存；尚未下载时按第 1 节改为 `HF_HUB_OFFLINE=0`。
+
 ```bash
-CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0 nohup python -u scripts/experiment.py run-all \
+CUDA_DEVICE_ORDER=PCI_BUS_ID \
+CUDA_VISIBLE_DEVICES=2 \
+HF_HOME=/data/X-D-Lab/ty/.cache/huggingface \
+HF_HUB_OFFLINE=1 \
+nohup python -u scripts/experiment.py run-all \
   --config configs/llava.json \
   --out runs/llava-all-baseline \
   >> runs/logs/llava-all-baseline.log 2>&1 < /dev/null &
@@ -109,7 +121,11 @@ ps -p "$(cat runs/logs/qwen-all-baseline.pid)" -o pid,etime,stat,args
 **仅中断、代码和配置未变**：用原命令追加 `--resume`，接着预测还没有记录的样本，完成后自动评分：
 
 ```bash
-CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0 nohup python -u scripts/experiment.py run-all \
+CUDA_DEVICE_ORDER=PCI_BUS_ID \
+CUDA_VISIBLE_DEVICES=2 \
+HF_HOME=/data/X-D-Lab/ty/.cache/huggingface \
+HF_HUB_OFFLINE=1 \
+nohup python -u scripts/experiment.py run-all \
   --config configs/qwen.locked.json \
   --out runs/qwen-all-baseline \
   --resume \
@@ -117,7 +133,7 @@ CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0 nohup python -u scripts/expe
 echo $! > runs/logs/qwen-all-baseline.pid
 ```
 
-LLaVA 续跑同理：替换配置、结果目录、日志与 PID 名称。
+LLaVA 续跑同理：替换配置、结果目录、日志与 PID 名称，保留相同的 GPU、缓存和离线设置。评分、查看日志或摘要不加载模型，不需要添加 GPU 或缓存环境变量。
 
 **已经完整完成，或修复报错后想全部重跑**：使用新目录，例如 `runs/qwen-all-baseline-v2`，并更换对应日志/PID 名称；不要带 `--resume`。已有错误/无效预测不会被续跑自动重试，原结果保留。
 

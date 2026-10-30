@@ -21,11 +21,15 @@
 | `src/sentiment_lab/` | 数据隔离、推理适配、实验记录和评分实现 |
 | `tests/test_experiments.py` | 合成数据、模拟接口的 CPU 测试，无付费调用 |
 
-Qwen 后台命令（将 GPU 编号 `0` 改为实际可用卡；完整操作和 LLaVA 命令见指南）：
+Qwen 后台命令（按用户已跑通的设置使用 GPU 2、指定缓存并离线加载；完整操作和 LLaVA 缓存前提见指南）：
 
 ```bash
 mkdir -p runs/logs
-CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0 nohup python -u scripts/experiment.py run-all --config configs/qwen.locked.json --out runs/qwen-all-baseline >> runs/logs/qwen-all-baseline.log 2>&1 < /dev/null &
+CUDA_DEVICE_ORDER=PCI_BUS_ID \
+CUDA_VISIBLE_DEVICES=2 \
+HF_HOME=/data/X-D-Lab/ty/.cache/huggingface \
+HF_HUB_OFFLINE=1 \
+nohup python -u scripts/experiment.py run-all --config configs/qwen.locked.json --out runs/qwen-all-baseline >> runs/logs/qwen-all-baseline.log 2>&1 < /dev/null &
 ```
 
 `run-all` 固定图文输入与 `baseline` 提示，按原始 dev/test/challenge 文件顺序读取全部样本，并在 `evaluation/` 保存汇总评分。历史分阶段命令保留在[旧版指南](docs/staged-evaluation-guide.md)。仓库不包含图片、原始帖子、复核内容、运行输出或密钥；云端需另行放入已冻结的数据包。

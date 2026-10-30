@@ -4,6 +4,8 @@
 
 ## 实验代码与仓库（2026-10-30 更新）
 
+- 已验证的启动设置（用户确认）：Qwen 已下载到服务器，使用 `CUDA_DEVICE_ORDER=PCI_BUS_ID`、`CUDA_VISIBLE_DEVICES=2`、`HF_HOME=/data/X-D-Lab/ty/.cache/huggingface`、`HF_HUB_OFFLINE=1` 的开发集命令已跑通。当前全数据指南与 README 的 Qwen、LLaVA 和续跑示例统一采用这些设置，继续使用 `run-all` 完成全部 70 条；LLaVA 指定版本是否已完整缓存待核验，尚未下载时须先允许联网下载。具体模型分数未回传。
+
 - 当前方案（2026-10-30 用户明确调整）：先只做全数据基础评测，固定图文输入与 `baseline` 提示；Qwen 完整跑完全部 70 条并自动评分后，再运行 LLaVA。新增 `run-all` 命令，一次加载模型、读取原有三份数据、统一评分，不要求手工分阶段或 freeze。原有数据/结果保留，操作见[简化运行指南](docs/experiment-guide.md)，此前指南保留在[分阶段历史指南](docs/staged-evaluation-guide.md)。全数据成绩包含已使用的开发样本，记为基础评测结果。
 
 - 当前完成项：用户确认 Qwen 的部分验证已完成；截图显示 `qwen-dev-baseline`、`qwen-dev-evidence` 及评分文件。尚未读取服务器的 `metrics.json`，具体分数、有效预测数与全部运行状态待核验，不代填结论。
