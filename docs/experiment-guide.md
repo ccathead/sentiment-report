@@ -14,6 +14,8 @@
 
 ## 2. 获取代码和放置数据
 
+服务器遇到 `gnutls_handshake()` 报错时，按[私有仓库 SSH 克隆命令](github-ssh-clone.md)完成配置；该记录包含逐条输入说明及 443 端口备用方案。
+
 ```bash
 git clone https://github.com/ccathead/sentiment-report.git
 cd sentiment-report
@@ -41,23 +43,99 @@ sentiment-report/
 
 正式数据 manifest SHA-256：`fb1ef169f7237f5c6ed6039398e3b302390144265231952ce4d402da53cdb8f8`。`check-data` 应核验 155 个文件、dev=12、test=47、challenge=11。
 
-## 3. 环境
+## 3. Conda 环境与 A800 服务器
 
-仅 API、核验与评分：Python 3.10 或以上，安装轻量依赖。
+2026-10-30 更新：用户提供的服务器为 4 张 NVIDIA A800 80GB PCIe，驱动 `550.127.05`，`nvidia-smi` 显示 CUDA `12.4`。此前指南面向 4090 D；现将默认部署步骤改为 A800 + Conda，保留原有 PyTorch/Transformers 版本方案。服务器安装和真实模型推理仍待核验。
+
+### 3.1 创建环境（首次执行）
+
+在服务器终端进入已经克隆的项目目录。Conda 管理独立 Python 环境，GPU 软件包在激活后的环境中通过 `python -m pip` 安装。
 
 ```bash
-python -m pip install -r requirements.txt
-python -m unittest discover -s tests -v
-python scripts/experiment.py check-data
+cd /data/X-D-Lab/ty/sentiment-report
+conda env create -f environment.yml
+conda activate sentiment-report
+python -V
+python -m pip --version
 ```
 
-4090 D 云端建议新建 Python 3.10 环境。下列 PyTorch/Transformers 主版本沿用旧 LLaVA 学习实验的成功组合；Qwen 在本项目中的 GPU 运行仍需实际检查。
+`environment.yml` 只创建 Python 3.10 和 pip 基础环境，GPU 依赖继续按下节安装。如果服务器还没有同步此文件，可以用下面的命令代替 `conda env create`（两种创建方式只选一种）：
+
+```bash
+conda create -n sentiment-report python=3.10 pip -y
+conda activate sentiment-report
+```
+
+已有同名环境时先用 `conda env list` 检查，确认是本项目环境后直接激活。若提示需先初始化 Conda，当前 Bash 会话可执行 `source /home/c1-505/anaconda3/etc/profile.d/conda.sh` 后再激活；路径依据用户提供的进程路径推定，实际安装位置待核验。
+
+### 3.2 安装依赖
+
+本地模型推理执行：
 
 ```bash
 python -m pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124
 python -m pip install -r requirements-gpu.txt
 python -m pip check
-python -c "import torch,transformers; print(torch.__version__,transformers.__version__); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0))"
+```
+
+该 PyTorch/torchvision CUDA 12.4 组合有官方 wheel；驱动版本满足此 CUDA 运行时的要求。`nvidia-smi` 的 CUDA 字段表示驱动支持的 CUDA 版本，不证明系统已安装同版本 Toolkit；本项目使用预编译包推理，无需另行安装系统 CUDA Toolkit。完整依赖安装是否成功仍以服务器 `pip check` 和下面的实际 GPU 检查为准。
+
+如果只调用 DMXAPI、核验数据或评分，可只安装轻量依赖：
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+### 3.3 选择一张获分配的 GPU
+
+用户提供的 **2026-10-30 15:46:59** 快照（后续占用可能变化）：
+
+| GPU 编号 | 已用 / 总显存（MiB） | GPU 利用率 | 判断 |
+|---|---|---|---|
+| 0 | 2878 / 81920 | 99% | 显存占用低，但计算繁忙 |
+| 1 | 61235 / 81920 | 0% | 已有 Python 进程大量占用显存，不代表空闲 |
+| 2 | 2972 / 81920 | 99% | 显存占用低，但计算繁忙 |
+| 3 | 9439 / 81920 | 100% | 计算繁忙 |
+
+这份快照没有明确空闲卡。先确认可用卡或等待任务释放；不要根据一次 `GPU-Util=0%` 判断卡可独占。运行前查看最新状态：
+
+```bash
+nvidia-smi
+nvidia-smi --query-gpu=index,uuid,name,memory.used,memory.free,utilization.gpu --format=csv
+```
+
+从输出复制**实际分配给自己**的 GPU UUID，输入以下命令后按提示粘贴并回车。这种方式避免将示例卡号误当作可用卡号：
+
+```bash
+read -r -p "粘贴获分配的 GPU UUID（GPU- 开头）: " SELECTED_GPU_UUID
+export CUDA_VISIBLE_DEVICES="$SELECTED_GPU_UUID"
+```
+
+`CUDA_VISIBLE_DEVICES` 限制当前进程可见的卡，不会预留 GPU 或阻止其他用户使用。仅暴露一张卡后，它在 PyTorch 中编号为 `cuda:0`，所以 `configs/qwen.locked.json` 和 `configs/llava.json` 的 `device: cuda:0` 可以保留；不需要改成物理卡号，也不需要启用四卡并行。
+
+### 3.4 缓存与安装验证
+
+```bash
+export HF_HOME=/data/X-D-Lab/ty/.cache/huggingface
+mkdir -p "$HF_HOME"
+python -c "import sys,torch,torchvision,transformers; print('Python:',sys.executable); print('torch:',torch.__version__,'torchvision:',torchvision.__version__,'transformers:',transformers.__version__); print('CUDA runtime:',torch.version.cuda); assert torch.cuda.is_available(), 'CUDA unavailable'; assert torch.cuda.device_count()==1, 'Select exactly one GPU'; print('GPU:',torch.cuda.get_device_name(0)); print('BF16:',torch.cuda.is_bf16_supported()); print('free,total GiB:',[round(v/1024**3,2) for v in torch.cuda.mem_get_info()]); x=torch.ones(1,device='cuda:0'); print('CUDA tensor:',x.item())"
+python -m unittest discover -s tests -v
+python scripts/experiment.py check-data
+```
+
+预期 Python 路径指向 `sentiment-report` Conda 环境，CUDA runtime 为 `12.4`，GPU 为 A800，BF16 为 `True`；若断言失败先排查，不继续启动模型。`check-data` 需要已传入冻结数据包。上述检查只验证基础环境，模型是否成功加载仍以第 4 节的 3 条开发样本运行结果为准。
+
+新开终端需重新 `conda activate sentiment-report`，并设置 `CUDA_VISIBLE_DEVICES` 和 `HF_HOME`。可将本次环境证据保存到一个新的目录（同一终端内执行）：
+
+```bash
+ENV_RECORD_DIR="runs/env-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$ENV_RECORD_DIR"
+git rev-parse HEAD > "$ENV_RECORD_DIR/commit.txt"
+git status --short > "$ENV_RECORD_DIR/worktree-status.txt"
+conda env export > "$ENV_RECORD_DIR/conda-environment.yml"
+python -m pip freeze > "$ENV_RECORD_DIR/pip-freeze.txt"
+nvidia-smi > "$ENV_RECORD_DIR/nvidia-smi.txt"
+printf '%s\n' "$CUDA_VISIBLE_DEVICES" > "$ENV_RECORD_DIR/visible-gpu.txt"
 ```
 
 有独立大磁盘时可先设置 `HF_HOME` 指向缓存目录；模型会从 Hugging Face 下载或复用该目录缓存。代码采用单模型、单张图片、batch=1、贪心生成，不同时加载两套模型。LLaVA 使用 FP16，Qwen 使用 BF16；报告按各自配置记录精度。LLaVA 使用自己的图像预处理；Qwen 限制为 256–1280 视觉 token 对应像素范围。不同模型的视觉处理不同，报告需注明，不能宣称算力或分辨率完全相同。
@@ -162,6 +240,10 @@ python scripts/experiment.py compare --runs runs/llava-test-mm runs/qwen-test-mm
 `errors.csv` 的原因与改进列留空，结合原图和文本填写至少两个真实案例，不能自动猜测模型内部原因。错误原因是分析假设，需要与可见证据区分。小样本、单人复核、AI 辅助预标注、样本筛选偏差与可能的模型预训练数据重合应在报告中说明。
 
 ## 8. 核验依据
+
+- [Conda 环境管理](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html)
+- [PyTorch 历史版本安装命令（2.6.0 / CUDA 12.4）](https://pytorch.org/get-started/previous-versions/)
+- [NVIDIA CUDA 驱动兼容说明](https://docs.nvidia.com/deploy/cuda-compatibility/minor-version-compatibility.html)
 
 - [LLaVA 官方模型卡](https://huggingface.co/llava-hf/llava-1.5-7b-hf)
 - [Qwen2.5-VL 官方模型卡](https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct)

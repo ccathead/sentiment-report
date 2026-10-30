@@ -4,11 +4,13 @@
 
 ## 实验代码与仓库（2026-10-30 更新）
 
+- 已补充[私有仓库 SSH 克隆命令](docs/github-ssh-clone.md)：记录 Linux 服务器密钥生成、公钥添加、认证测试、克隆及 443 端口备用方案；服务器实际连接结果待核验。
+
 - 用户授权新建独立私有仓库：[ccathead/sentiment-report](https://github.com/ccathead/sentiment-report)。代码已推送 main，代码提交为 `ffdb765`，本地已跟踪 origin/main；远端私有状态已核验。本目录作为独立 Git 项目，不改动原 `mllm-learning` 仓库。
 - 已实现 LLaVA / Qwen 本地推理、DMXAPI 两种图像接口、两套完整提示、文字/图文消融、断点续跑、实验记录、Accuracy/Macro-F1、混淆矩阵和逐题改错对照。入口：[实验运行指南](docs/experiment-guide.md)。
 - 代码逻辑核验：24 项 CPU 测试通过，GitHub Actions 首次提交自动测试成功；正式数据 155 个文件通过哈希核验；请求预览通过。证据与局限见[代码核验记录](docs/code-verification-2026-10-30.md)。
 - 固定 LLaVA revision `b234b804b114d9e37bb655e11cbbb5f5e971b7a9`；Qwen revision `cc594898137f460bfe9f0759e9844b3ce807cfb5`。两者均核对官方提交存在。
-- 当前卡点：本机未装 PyTorch，4090 D 运行环境与 DMX 账户模型/密钥待配置验证；尚无真实模型预测或分数。
+- 当前卡点：本机未装 PyTorch；原计划的 4090 D 环境已按用户提供的 4×A800 80GB 服务器调整为 Conda 部署（2026-10-30），详见[实验运行指南](docs/experiment-guide.md)。驱动为 550.127.05，保留 PyTorch 2.6.0/cu124 和现有单卡模型配置；服务器安装、GPU 分配、真实推理及 DMX 账户配置仍待核验。15:46:59 快照中四卡均有进程占用，尚无真实模型预测或分数。
 - 下一步：云端各 3 条开发样本检查 → 完整开发集提示比较 → 冻结协议 → 正式测试 47 条、挑战 11 条 → 人工错误分析。
 - 图片、原始文本、复核内容、密钥和运行日志均排除在 Git 提交之外；本地冻结数据继续保留。实验克隆需要另行使用已有 v1 数据包。
 

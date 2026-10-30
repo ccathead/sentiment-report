@@ -1,0 +1,7 @@
+# Creates the Conda environment only. Install GPU packages afterward as documented.
+name: sentiment-report
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip

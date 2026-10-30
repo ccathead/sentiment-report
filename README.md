@@ -2,9 +2,11 @@
 
 代码仓库：[ccathead/sentiment-report](https://github.com/ccathead/sentiment-report)（私有）。
 
+服务器首次克隆或遇到 HTTPS TLS 报错时，见[私有仓库 SSH 克隆命令](docs/github-ssh-clone.md)，包含密钥配置、认证测试和 443 端口备用命令。
+
 实验代码入口是 `scripts/experiment.py`。支持 LLaVA 1.5 7B、Qwen2.5-VL 7B、DMXAPI 的 Responses / Chat Completions 图像接口，以及文字单模态、图文联合、基准提示与证据核对提示。
 
-**从这里开始：[实验运行指南](docs/experiment-guide.md)**。运行指南包含 4090 D 环境安装、数据放置、API 配置、开发集检查、冻结方案、正式测试与结果比较的完整命令。
+**从这里开始：[实验运行指南](docs/experiment-guide.md)**。运行指南包含 A800 服务器的 Conda 环境创建、GPU 选择、数据放置、API 配置、开发集检查、冻结方案、正式测试与结果比较的完整命令。基础环境文件为 `environment.yml`；创建后仍需按指南安装 GPU 依赖。
 
 | 文件 | 用途 |
 |---|---|
