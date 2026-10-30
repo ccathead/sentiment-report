@@ -1,0 +1,10 @@
+{
+  "backend": "hf",
+  "architecture": "llava",
+  "model": "llava-hf/llava-1.5-7b-hf",
+  "revision": "b234b804b114d9e37bb655e11cbbb5f5e971b7a9",
+  "dtype": "float16",
+  "device": "cuda:0",
+  "max_new_tokens": 32,
+  "seed": 20261030
+}

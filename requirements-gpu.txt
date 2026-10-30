@@ -1,0 +1,9 @@
+# Install torch/torchvision using the CUDA wheel index first; see README.
+-r requirements.txt
+transformers==4.57.1
+accelerate==1.15.0
+huggingface-hub==0.36.2
+numpy==1.26.4
+sentencepiece==0.2.1
+protobuf==5.29.5
+safetensors==0.6.2

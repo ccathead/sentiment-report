@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>图文情感数据集复核</title>
+<style>
+:root{font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#243143;background:#f4f6f8;font-size:16px}*{box-sizing:border-box}body{margin:0}header{padding:22px 30px;background:#fff;border-bottom:1px solid #dce2e8}h1{font-size:24px;margin:0 0 8px}p{line-height:1.7;margin:8px 0}main{max-width:1280px;margin:22px auto;padding:0 22px}.toolbar,.actions,.navigation{display:flex;gap:10px;align-items:center;flex-wrap:wrap}input,select,textarea,button{font:inherit;border:1px solid #c4ced9;border-radius:7px;padding:9px 12px;background:white;color:inherit}button{cursor:pointer}button:hover{border-color:#477bb0;background:#eff6ff}button:disabled{opacity:.45;cursor:default}input{max-width:250px}textarea{width:100%;height:90px;resize:vertical}.status{color:#526477;font-size:14px}.panel{background:white;border:1px solid #dce2e8;border-radius:12px;padding:22px;margin-top:18px}.sample{display:grid;grid-template-columns:1fr 1fr;gap:26px}.image-box{display:flex;align-items:center;justify-content:center;min-height:340px;background:#f5f6f7;border-radius:8px}.image-box img{display:block;max-width:100%;max-height:520px;object-fit:contain}.caption{font-size:20px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere;background:#f5f7fa;padding:18px;border-radius:8px}.tag{display:inline-block;padding:4px 8px;background:#eaf0f6;border-radius:5px;font-size:13px;margin-right:6px}.label-buttons{display:flex;gap:9px;margin:18px 0;flex-wrap:wrap}.label-buttons button.selected{border:2px solid #2b6ea8;background:#e9f3ff;padding:8px 11px}.primary{background:#215d91;color:white;border-color:#215d91}.primary:hover{background:#194e7c;color:white}details{border-top:1px solid #e1e6eb;padding-top:14px;margin-top:18px}summary{cursor:pointer;color:#536b82}#proposal{white-space:pre-wrap;line-height:1.7;font-size:14px}.notice{font-size:14px;color:#6a4a12;background:#fff5df;padding:12px;border-radius:6px}#progressbar{height:7px;background:#dce4ee;border-radius:9px;margin-top:14px;overflow:hidden}#fill{height:100%;background:#427ca9;width:0}#message{min-height:22px;color:#215d91;font-size:14px}a{color:#245e90}@media(max-width:850px){.sample{grid-template-columns:1fr}header{padding:18px}main{padding:0 12px}.image-box{min-height:200px}}
+</style>
+<header>
+<h1>图文情感数据集复核</h1>
+<p>判断整条图文内容对主要事件或对象表达的态度：正向、负向或中性。漂亮图片不自动等于正向，破损物体也不自动等于作者抱怨。</p>
+<div class="toolbar"><label>复核人 <input id="reviewer" placeholder="填写姓名或固定代号" autocomplete="off"></label><label>范围 <select id="scope"><option value="all">全部 72 条</option><option value="main">主数据 60 条</option><option value="dev">开发集 12 条</option><option value="test">测试集 48 条</option><option value="challenge">挑战样本 12 条</option><option value="pending">尚未复核</option></select></label><span id="progress" class="status"></span></div>
+<div id="progressbar"><div id="fill"></div></div>
+</header>
+<main>
+<p class="notice">当前标签是 AI 辅助建议，尚不是人工真值。建议先自行判断，再展开建议。无法明确裁决的主数据选“排除”并写原因，不要用“中性”代替无法判断。主数据复核完成后才能导出完整记录用于冻结正式版本。</p>
+<div class="panel sample">
+<div><div id="identity"></div><div class="image-box"><img id="image" alt="当前样本原图"></div><p class="status">图片与配文均来自 MVSA-Single；图片未裁剪、未改动。</p></div>
+<div><p id="caption" class="caption"></p><div class="label-buttons" id="choices"><button data-label="positive">1 正向 Positive</button><button data-label="neutral">2 中性 Neutral</button><button data-label="negative">3 负向 Negative</button><button data-label="exclude">4 排除／无法裁决</button></div><label for="notes">复核理由或修改说明（排除时必填）</label><textarea id="notes" placeholder="例如：配文是抱怨天气，图片展示的是怀念的晴天场景。"></textarea><div class="navigation"><button id="previous">上一条</button><button id="save" class="primary">确认并保存，下一条</button><button id="next">下一条（不保存）</button></div><p id="message" aria-live="polite"></p><details id="suggestions"><summary>展开 AI 建议和原始标签（建议先自行判断）</summary><div id="proposal"></div></details></div>
+</div>
+<div class="panel"><div class="actions"><button id="export">导出复核记录 JSON</button><button id="exportComplete">主数据复核完成后导出</button><label>导入已有记录 <input type="file" id="import" accept=".json,application/json"></label></div><p class="status">只在当前浏览器本地保存草稿，不上传到服务器。导出的 JSON 请保留在项目目录；交给数据冻结脚本后生成正式标签。草稿不是原始数据的修改。</p><p><a href="ANNOTATION_GUIDE.md">查看完整标注规范</a> · <a href="README.md">查看数据说明</a></p></div>
+</main>
+<script id="dataset" type="application/json">__DATA__</script>
+<script>
+"use strict";
+const packet=JSON.parse(document.getElementById("dataset").textContent);
+const all=packet.annotations;
+const key="mvsa-review-"+packet.annotations_sha256;
+const allowed=new Set(["positive","neutral","negative","exclude"]);
+let draft={reviewer:"",records:{}};
+try{const saved=localStorage.getItem(key);if(saved)draft=JSON.parse(saved);}catch(e){draft={reviewer:"",records:{}};}
+let current=0,selected=null,dirty=false,filtered=[...all];
+const $=id=>document.getElementById(id);
+$("reviewer").value=draft.reviewer||"";
+function persist(){draft.reviewer=$("reviewer").value.trim();try{localStorage.setItem(key,JSON.stringify(draft));}catch(e){$("message").textContent="浏览器无法保存本地草稿，请及时导出 JSON。";}}
+function reviewed(a){return allowed.has(draft.records[a.id]?.label);}
+function updateProgress(){const n=all.filter(reviewed).length;const main=all.filter(a=>a.split!=="challenge");const mainDone=main.filter(reviewed).length;$("progress").textContent=`已复核 ${n}/${all.length}；主数据 ${mainDone}/${main.length}`;$("fill").style.width=(100*n/all.length)+"%";$("exportComplete").disabled=mainDone!==main.length;}
+function makeFilter(){const scope=$("scope").value;filtered=all.filter(a=>scope==="all"||(scope==="main"&&a.split!=="challenge")||(scope==="pending"&&!reviewed(a))||a.split===scope);current=0;render();}
+function render(){updateProgress();if(!filtered.length){$("identity").textContent="该范围没有待显示的样本。";$("caption").textContent="可切换范围或导出复核记录。";$("image").removeAttribute("src");$("save").disabled=true;$("notes").value="";return;}$("save").disabled=false;const a=filtered[current],r=draft.records[a.id];selected=r?.label||null;$("identity").textContent=`${a.id} · ${a.split} · ${current+1}/${filtered.length}`;$("image").src=a.image;$("caption").textContent=a.text;$("notes").value=r?.notes||"";$("suggestions").open=false;$("proposal").textContent=`AI 联合标签建议：${a.ai_proposed_joint_label||"无法唯一裁决，待核验"}\n建议置信度：${a.ai_confidence}\n可见内容：${a.visible_evidence_zh}\n理由：${a.annotation_rationale_zh}\n原文字标签：${a.source_text_label}\n原图片标签：${a.source_image_label}\n注意：AI 建议不是独立人工标注。`;$("message").textContent=r?`已保存：${r.label}，复核人 ${r.reviewer}`:"尚未复核";dirty=false;paint();}
+function paint(){document.querySelectorAll("[data-label]").forEach(b=>b.classList.toggle("selected",b.dataset.label===selected));}
+document.querySelectorAll("[data-label]").forEach(b=>b.addEventListener("click",()=>{selected=b.dataset.label;dirty=true;paint();}));
+$("notes").addEventListener("input",()=>dirty=true);
+$("reviewer").addEventListener("change",persist);
+function advance(delta){if(!filtered.length)return;if(dirty&&!confirm("当前选择尚未保存，仍要切换吗？"))return;current=(current+delta+filtered.length)%filtered.length;render();}
+$("previous").onclick=()=>advance(-1);$("next").onclick=()=>advance(1);$("scope").onchange=()=>{if(dirty&&!confirm("当前选择尚未保存，仍要切换范围吗？"))return;makeFilter();};
+$("save").onclick=()=>{const reviewer=$("reviewer").value.trim();if(!reviewer){$("message").textContent="请先填写复核人姓名或固定代号。";return;}if(!allowed.has(selected)){$("message").textContent="请先选择标签。";return;}const notes=$("notes").value.trim();if(selected==="exclude"&&!notes){$("message").textContent="排除时请写明原因。";return;}const a=filtered[current];draft.records[a.id]={label:selected,reviewer,notes,reviewed_at:new Date().toISOString()};persist();dirty=false;if($("scope").value==="pending")makeFilter();else{current=(current+1)%filtered.length;render();}};
+function exportData(){if(dirty){$("message").textContent="请先保存当前选择，再导出。";return;}const data={dataset_name:packet.dataset_name,dataset_version:packet.dataset_version,annotations_sha256:packet.annotations_sha256,exported_at:new Date().toISOString(),reviewer:$("reviewer").value.trim(),reviews:all.filter(reviewed).map(a=>({id:a.id,...draft.records[a.id]}))};const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json;charset=utf-8"});const link=document.createElement("a");link.href=URL.createObjectURL(blob);link.download="mvsa_human_review.json";link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);}
+$("export").onclick=exportData;$("exportComplete").onclick=exportData;
+$("import").onchange=async e=>{try{const file=e.target.files[0];if(!file)return;const data=JSON.parse(await file.text());if(data.annotations_sha256!==packet.annotations_sha256)throw Error("记录来自不同的数据版本，不能导入。");const ids=new Set(all.map(a=>a.id));const seen=new Set();for(const r of data.reviews||[]){if(!ids.has(r.id)||seen.has(r.id)||!allowed.has(r.label)||!r.reviewer||!r.reviewed_at)throw Error("记录包含无效、重复或不完整的复核条目。");seen.add(r.id);if(r.label==="exclude"&&!r.notes)throw Error("排除条目缺少理由。");}for(const r of data.reviews||[]){draft.records[r.id]={label:r.label,reviewer:r.reviewer,notes:r.notes||"",reviewed_at:r.reviewed_at};}if(data.reviewer)$("reviewer").value=data.reviewer;persist();makeFilter();alert("复核记录已导入。");}catch(error){alert(error.message);}};
+document.addEventListener("keydown",e=>{if(["INPUT","TEXTAREA","SELECT"].includes(document.activeElement.tagName))return;const mapping={"1":"positive","2":"neutral","3":"negative","4":"exclude"};if(mapping[e.key]){selected=mapping[e.key];dirty=true;paint();}});
+window.addEventListener("beforeunload",e=>{if(dirty){e.preventDefault();e.returnValue="";}});
+render();
+</script>
+</html>

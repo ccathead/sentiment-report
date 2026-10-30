@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sentiment-report"
+version = "0.1.0"
+description = "Reproducible image-text sentiment polarity evaluation"
+requires-python = ">=3.10"
+dependencies = ["Pillow==11.3.0"]
+
+[project.scripts]
+sentiment-experiment = "sentiment_lab.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

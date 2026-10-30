@@ -1,0 +1,14 @@
+{
+  "backend": "dmx",
+  "model": "REPLACE_WITH_ACCOUNT_VERIFIED_VISION_MODEL_ID",
+  "base_url": "https://www.dmxapi.cn/v1",
+  "endpoint": "chat/completions",
+  "api_key_env": "DMX_API_KEY",
+  "max_output_tokens": 512,
+  "chat_token_parameter": "max_completion_tokens",
+  "temperature": null,
+  "extra_body": {},
+  "timeout_seconds": 120,
+  "max_retries": 2,
+  "request_interval_seconds": 1
+}
