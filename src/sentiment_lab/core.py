@@ -72,11 +72,13 @@ def within(root, relative):
 def load_inputs(root, split):
     """Read only model inputs and integrity hashes; never read annotations or gold labels."""
     root = Path(root).resolve()
+    if split == "all" and "inputs/eval.jsonl" in read_json(root / "manifest.sha256.json")["files"]:
+        split = "eval"
     if split == "all":
         rows = [row for part in SPLITS for row in load_inputs(root, part)]
         index_rows(rows)  # Refuse overlap rather than silently counting any sample twice.
         return rows
-    if split not in SPLITS:
+    if split not in (*SPLITS, "eval"):
         raise ValueError("Unknown split")
     manifest = read_json(root / "manifest.sha256.json")["files"]
     relative = f"inputs/{split}.jsonl"
@@ -99,6 +101,8 @@ def load_inputs(root, split):
 
 def load_gold(root, split, inputs):
     root = Path(root)
+    if split == "all" and "inputs/eval.jsonl" in read_json(root / "manifest.sha256.json")["files"]:
+        split = "eval"
     if split == "all":
         rows = [row for part in SPLITS
                 for row in load_gold(root, part, load_inputs(root, part)).values()]

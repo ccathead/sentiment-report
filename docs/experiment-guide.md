@@ -1,6 +1,6 @@
 # 全数据基础评测：先 Qwen，再 LLaVA
 
-更新日期：2026-10-30。当前环境和数据已准备好，Qwen 的部分验证已完成（用户确认）。现在只做一件事：**每个模型用相同的基础提示，读取图片和文本，把全部 70 条数据完整预测一次并自动评分。**
+更新日期：2026-10-31。当前数据统一分为训练集、验证集、评测集。本页用于在固定70条评测集上完整推理并自动评分；训练及验证数据另行准备。
 
 ## 1. 准备
 
@@ -13,7 +13,16 @@ conda activate sentiment-report
 mkdir -p runs/logs
 ```
 
-你提供的 `run --split dev` 命令是此前已跑通的开发集运行方式；本页沿用其环境设置，使用 `run-all` 完成上一步确定的全部 70 条评测。本页命令要求更新后的 `run-all` 功能。数据默认位于 `datasets/mvsa_daily_v1/`，不需要移动或重新划分数据。此前的 `qwen-dev-baseline`、`qwen-dev-evidence` 等结果保留；本次使用新的输出目录。
+`run-all`默认读取`datasets/mvsa_eval_v1/`的单一评测集，完整运行70条并自动评分，不分开发或挑战样本。模型缓存、GPU2和离线设置沿用已跑通的配置。
+
+更新代码后，在服务器项目根目录执行一次，将原数据无损汇总为评测集（本地已经生成；该输出目录已存在时不重复执行第一条）：
+
+```bash
+python scripts/consolidate_evaluation.py
+python scripts/experiment.py check-data
+```
+
+程序逐条核对汇总前后的输入顺序、图片和标签。原始`datasets/mvsa_daily_v1/`保留用于追溯旧结果，其旧分组不再用于当前实验流程。旧结果的manifest仍绑定原目录，复算旧结果时显式传`--dataset datasets/mvsa_daily_v1`；当前新结果的额外评分或比较使用`--dataset datasets/mvsa_eval_v1`，`run-all`会自动使用正确数据评分。新结果另取输出目录，勿覆盖旧基线。训练与验证集见[新增数据复核及微调指南](llamafactory-guide.md)。
 
 按用户已跑通的命令，当前统一使用 **GPU 2**、`HF_HOME=/data/X-D-Lab/ty/.cache/huggingface` 和 `HF_HUB_OFFLINE=1`。每条启动命令都直接带上这些设置，不需要提前全局 export。模型配置中的 `cuda:0` 不用改；GPU 2 是否仍可用需以实际运行时状态为准。
 

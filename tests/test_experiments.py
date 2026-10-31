@@ -62,6 +62,27 @@ class Fixture(unittest.TestCase):
                    {"files": {p.relative_to(self.data).as_posix(): file_hash(p)
                               for p in self.data.rglob("*") if p.is_file() and p.name != "manifest.sha256.json"}})
 
+    def test_single_evaluation_split_preserves_inputs_labels_and_scoring(self):
+        from scripts.consolidate_evaluation import consolidate
+        original = load_inputs(self.data, "all")
+        from sentiment_lab.core import load_gold
+        gold = load_gold(self.data, "all", original)
+        merged = self.root / "evaluation-data"
+        self.assertEqual(consolidate(self.data, merged), {"eval": 9})
+        self.assertEqual(load_inputs(merged, "all"), original)
+        self.assertEqual(load_inputs(merged, "eval"), original)
+        self.assertEqual(load_gold(merged, "all", original), gold)
+        self.assertFalse((merged / "inputs/dev.jsonl").exists())
+        out = self.root / "eval-run"
+        run_experiment(dataset=merged, config_path=self.config, prompt_path=self.prompt,
+                       split="eval", condition="multimodal", out=out, backend_factory=self.factory)
+        metrics, rows = evaluate_run(merged, out)
+        self.assertEqual(metrics["n"], 9)
+        self.assertEqual(metrics["scope"], "full_dataset")
+        (merged / "labels/eval.jsonl").write_text("", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "hash mismatch"):
+            load_gold(merged, "eval", original)
+
     def run_job(self, **kwargs):
         options = dict(dataset=self.data, config_path=self.config, prompt_path=self.prompt,
                        split="dev", condition="multimodal", out=self.root / "run", backend_factory=self.factory)
@@ -245,6 +266,18 @@ class Fixture(unittest.TestCase):
                 dispatch(args)
         self.assertEqual(read_json(self.root / "run/run.json")["state"], "failed")
         self.assertFalse((self.root / "run/evaluation").exists())
+
+    def test_run_all_custom_prompt_is_used_and_recorded(self):
+        args = parser().parse_args(["run-all", "--dataset", str(self.data), "--config", str(self.config),
+                                    "--prompt", str(self.prompt), "--out", str(self.root / "run")])
+        with patch("sentiment_lab.backends.HFBackend", side_effect=self.factory):
+            dispatch(args)
+        info = read_json(self.root / "run/run.json")
+        self.assertEqual(info["prompt_name"], "prompt")
+        self.assertEqual(info["prompt_sha256"], file_hash(self.prompt))
+        self.assertEqual((self.root / "run/prompt_template.txt").read_text(encoding="utf-8"),
+                         self.prompt.read_text(encoding="utf-8"))
+        self.assertEqual(read_json(self.root / "run/evaluation/metrics.json")["n"], 9)
 
     def test_run_all_can_resume_an_interrupted_run_and_score(self):
         calls = []

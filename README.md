@@ -6,7 +6,13 @@
 
 实验代码入口是 `scripts/experiment.py`。支持 LLaVA 1.5 7B、Qwen2.5-VL 7B、DMXAPI 的 Responses / Chat Completions 图像接口，以及文字单模态、图文联合、基准提示与证据核对提示。
 
-**当前操作：[全数据基础评测指南](docs/experiment-guide.md)**。使用 `run-all`，让 Qwen 用图文输入和基础提示跑完全部 70 条并自动评分，再运行 LLaVA。不需要手动切换数据划分、执行 freeze 或额外评分；原有数据和历史结果保留。当前项目是预训练模型推理评测，没有训练或微调入口。
+**基础评测：[全数据基础评测指南](docs/experiment-guide.md)**。使用 `run-all`，让 Qwen 用图文输入和基础提示跑完全部 70 条并自动评分，再运行 LLaVA。不需要手动切换数据划分、执行 freeze 或额外评分；原有数据和历史结果保留。
+
+**优化准备：[LLaMA-Factory数据与运行指南](docs/llamafactory-guide.md)**。另建训练/验证集，现有70条保留；Qwen/LLaVA采用独立Conda环境中的LoRA，DeepSeek/Kimi采用提示优化。已有数据复核/导出程序与训练配置，尚未完成GPU训练、适配器评测接入或真正多图few-shot，不代表已有优化分数。
+
+当前只有训练集`train`、验证集`val`和评测集`eval`。评测集是原70条的无损汇总，`run-all`默认读取`datasets/mvsa_eval_v1/`；服务器首次更新后执行`python scripts/consolidate_evaluation.py`生成。旧分组仅保留作历史记录。
+
+最新数据状态（2026-10-31）：按用户决定，新增数据不做人工复核，采用MVSA原文字／图片一致标签，已生成`datasets/mvsa_sft_v1/`下300条训练、60条验证，均类别均衡；70条评测不变。来源一致性派生标签不称为人工联合gold。两个LoRA配置已使用该目录，操作见上方微调指南。
 
 模型命令直接用 `CUDA_VISIBLE_DEVICES` 指定 GPU，使用 `nohup python -u` 后台运行；输出与报错写入 `runs/logs/`，并保存 PID。每个模型只加载一次，预测完自动评分；日志确认 Qwen 完成后再启动 LLaVA。整份数据的分数标记为全数据基础评测。
 
@@ -32,7 +38,7 @@ HF_HUB_OFFLINE=1 \
 nohup python -u scripts/experiment.py run-all --config configs/qwen.locked.json --out runs/qwen-all-baseline >> runs/logs/qwen-all-baseline.log 2>&1 < /dev/null &
 ```
 
-`run-all` 固定图文输入与 `baseline` 提示，按原始 dev/test/challenge 文件顺序读取全部样本，并在 `evaluation/` 保存汇总评分。历史分阶段命令保留在[旧版指南](docs/staged-evaluation-guide.md)。仓库不包含图片、原始帖子、复核内容、运行输出或密钥；云端需另行放入已冻结的数据包。
+`run-all` 固定图文输入，默认使用 `baseline` 提示；可用 `--prompt 提示名或路径` 指定另一个模板，程序会记录其内容与哈希。读取单一评测集全部样本，并在 `evaluation/` 保存汇总评分。后续方案见[四模型优化设计](docs/optimization-plan-2026-10-31.md)，其中新增提示尚未验证，LoRA配置已准备，适配器评测和多模态few-shot尚待实现。历史分阶段命令保留在[旧版指南](docs/staged-evaluation-guide.md)。仓库不包含图片、原始帖子、复核内容、运行输出或密钥；云端需另行放入已冻结的数据包。
 
 ## 数据构建与复核记录
 

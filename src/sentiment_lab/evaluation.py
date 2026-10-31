@@ -77,13 +77,15 @@ def evaluate_run(dataset, run):
                     "prompt": info["prompt_name"], "model": info["config"]["model"],
                     "run_state": info.get("state"), "run_signature": info["signature"],
                     "dataset_manifest_sha256": info["dataset_manifest_sha256"],
-                    "scope": ("full_dataset" if info["split"] == "all" else
+                    "scope": ("full_dataset" if info["split"] in ("all", "eval") else
                               "dev_subset" if len(selected) < len(full_gold) else "full_split"),
                     "prediction_file_sha256": file_hash(run / "predictions.jsonl") if predictions else None,
                     "observed_inference_seconds": sum(p.get("seconds", 0) for p in predictions),
                     "api_usage": [p["usage"] for p in predictions if p.get("usage")]})
     if info["split"] == "all":
         metrics["evaluation_note"] = "全部数据的基础评测（含此前使用过的开发样本），不作为独立保留测试集的成绩。"
+    elif info["split"] == "eval":
+        metrics["evaluation_note"] = "固定70条评测集上的回归比较；样本此前已查看，不作为盲测泛化结果。"
     return metrics, rows
 
 

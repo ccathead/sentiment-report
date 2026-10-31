@@ -21,10 +21,10 @@ def parser():
     p = argparse.ArgumentParser(description="Image-text sentiment experiment runner")
     commands = p.add_subparsers(dest="command", required=True)
     run = commands.add_parser("run", help="Run a local model or DMX API; --dry-run never loads/calls a model")
-    run.add_argument("--dataset", type=Path, default=ROOT / "datasets/mvsa_daily_v1")
+    run.add_argument("--dataset", type=Path, default=ROOT / "datasets/mvsa_eval_v1")
     run.add_argument("--config", type=Path, required=True)
     run.add_argument("--prompt", default="baseline")
-    run.add_argument("--split", choices=SPLITS, default="dev")
+    run.add_argument("--split", choices=(*SPLITS, "eval"), default="eval")
     run.add_argument("--condition", choices=("text", "multimodal"), default="multimodal")
     run.add_argument("--out", type=Path, required=True)
     run.add_argument("--limit", type=int, help="Development-only smoke test size")
@@ -32,9 +32,10 @@ def parser():
     run.add_argument("--resume", action="store_true")
     run.add_argument("--protocol", type=Path)
     run.add_argument("--env-file", type=Path)
-    full = commands.add_parser("run-all", help="Run baseline image-text inference on every frozen sample, then score automatically")
-    full.add_argument("--dataset", type=Path, default=ROOT / "datasets/mvsa_daily_v1")
+    full = commands.add_parser("run-all", help="Run image-text inference on every frozen sample, then score automatically")
+    full.add_argument("--dataset", type=Path, default=ROOT / "datasets/mvsa_eval_v1")
     full.add_argument("--config", type=Path, required=True)
+    full.add_argument("--prompt", default="baseline", help="Prompt name or file; defaults to the original baseline")
     full.add_argument("--out", type=Path, required=True)
     full.add_argument("--resume", action="store_true")
     full.add_argument("--env-file", type=Path)
@@ -54,7 +55,7 @@ def parser():
     lock.add_argument("--config", type=Path, required=True)
     lock.add_argument("--out", type=Path, required=True)
     check = commands.add_parser("check-data", help="Verify all frozen file hashes and input/label alignment")
-    check.add_argument("--dataset", type=Path, default=ROOT / "datasets/mvsa_daily_v1")
+    check.add_argument("--dataset", type=Path, default=ROOT / "datasets/mvsa_eval_v1")
     freeze = commands.add_parser("freeze", help="Freeze selected configurations/prompts after development checks")
     freeze.add_argument("--dataset", type=Path, default=ROOT / "datasets/mvsa_daily_v1")
     freeze.add_argument("--configs", type=Path, nargs="+", required=True)
@@ -83,9 +84,10 @@ def dispatch(args):
         evaluation_out = args.out / "evaluation"
         if evaluation_out.exists():
             raise FileExistsError(f"Evaluation already exists at {evaluation_out}; keep it and use a new --out for a new run")
-        print(f"Full-dataset baseline: {len(inputs)} samples, multimodal input, baseline prompt. Model loads once.", flush=True)
-        info = run_experiment(dataset=args.dataset, config_path=args.config, prompt_path=prompt_path("baseline"),
-                              split="all", condition="multimodal", out=args.out, resume=args.resume)
+        print(f"Full-dataset evaluation: {len(inputs)} samples, multimodal input, prompt={args.prompt}.", flush=True)
+        info = run_experiment(dataset=args.dataset, config_path=args.config, prompt_path=prompt_path(args.prompt),
+                              split=("eval" if "inputs/eval.jsonl" in read_json(args.dataset / "manifest.sha256.json")["files"] else "all"),
+                              condition="multimodal", out=args.out, resume=args.resume)
         metrics, rows = evaluate_run(args.dataset, args.out)
         save_evaluation(evaluation_out, metrics, rows)
         print(json.dumps({"state": info["state"], "samples": metrics["n"], "accuracy": metrics["accuracy"],
@@ -146,7 +148,7 @@ def dispatch(args):
                 raise ValueError(f"Frozen file changed: {relative}")
         seen = set()
         sizes = {}
-        for split in SPLITS:
+        for split in (("eval",) if "inputs/eval.jsonl" in manifest else SPLITS):
             inputs = load_inputs(args.dataset, split)
             gold = load_gold(args.dataset, split, inputs)
             if seen & set(gold):

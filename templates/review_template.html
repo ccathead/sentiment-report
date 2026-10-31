@@ -9,16 +9,16 @@
 <header>
 <h1>图文情感数据集复核</h1>
 <p>判断整条图文内容对主要事件或对象表达的态度：正向、负向或中性。漂亮图片不自动等于正向，破损物体也不自动等于作者抱怨。</p>
-<div class="toolbar"><label>复核人 <input id="reviewer" placeholder="填写姓名或固定代号" autocomplete="off"></label><label>范围 <select id="scope"><option value="all">全部 72 条</option><option value="main">主数据 60 条</option><option value="dev">开发集 12 条</option><option value="test">测试集 48 条</option><option value="challenge">挑战样本 12 条</option><option value="pending">尚未复核</option></select></label><span id="progress" class="status"></span></div>
+<div class="toolbar"><label>复核人 <input id="reviewer" placeholder="填写姓名或固定代号" autocomplete="off"></label><label>范围 <select id="scope"></select></label><span id="progress" class="status"></span></div>
 <div id="progressbar"><div id="fill"></div></div>
 </header>
 <main>
-<p class="notice">当前标签是 AI 辅助建议，尚不是人工真值。建议先自行判断，再展开建议。无法明确裁决的主数据选“排除”并写原因，不要用“中性”代替无法判断。主数据复核完成后才能导出完整记录用于冻结正式版本。</p>
+<p class="notice" id="notice">请独立判断图文联合情感。无法明确裁决或不符合题材的样本选“排除”并写原因，不要用“中性”代替无法判断。</p>
 <div class="panel sample">
 <div><div id="identity"></div><div class="image-box"><img id="image" alt="当前样本原图"></div><p class="status">图片与配文均来自 MVSA-Single；图片未裁剪、未改动。</p></div>
 <div><p id="caption" class="caption"></p><div class="label-buttons" id="choices"><button data-label="positive">1 正向 Positive</button><button data-label="neutral">2 中性 Neutral</button><button data-label="negative">3 负向 Negative</button><button data-label="exclude">4 排除／无法裁决</button></div><label for="notes">复核理由或修改说明（排除时必填）</label><textarea id="notes" placeholder="例如：配文是抱怨天气，图片展示的是怀念的晴天场景。"></textarea><div class="navigation"><button id="previous">上一条</button><button id="save" class="primary">确认并保存，下一条</button><button id="next">下一条（不保存）</button></div><p id="message" aria-live="polite"></p><details id="suggestions"><summary>展开 AI 建议和原始标签（建议先自行判断）</summary><div id="proposal"></div></details></div>
 </div>
-<div class="panel"><div class="actions"><button id="export">导出复核记录 JSON</button><button id="exportComplete">主数据复核完成后导出</button><label>导入已有记录 <input type="file" id="import" accept=".json,application/json"></label></div><p class="status">只在当前浏览器本地保存草稿，不上传到服务器。导出的 JSON 请保留在项目目录；交给数据冻结脚本后生成正式标签。草稿不是原始数据的修改。</p><p><a href="ANNOTATION_GUIDE.md">查看完整标注规范</a> · <a href="README.md">查看数据说明</a></p></div>
+<div class="panel"><div class="actions"><button id="export">导出当前进度 JSON</button><button id="exportComplete">全部复核完成后导出</button><label>导入已有记录 <input type="file" id="import" accept=".json,application/json"></label></div><p class="status">草稿只保存在当前浏览器，不上传。可随时导出进度；全部候选复核完成后导出完整记录，用于划分训练集和验证集。现有70条评测集保持固定。</p><p><a href="ANNOTATION_GUIDE.md">查看完整标注规范</a> · <a href="README.md">查看数据说明</a></p></div>
 </main>
 <script id="dataset" type="application/json">__DATA__</script>
 <script>
@@ -31,12 +31,21 @@ let draft={reviewer:"",records:{}};
 try{const saved=localStorage.getItem(key);if(saved)draft=JSON.parse(saved);}catch(e){draft={reviewer:"",records:{}};}
 let current=0,selected=null,dirty=false,filtered=[...all];
 const $=id=>document.getElementById(id);
+const role=a=>({dev:"eval",test:"eval",challenge:"eval"}[a.split]||a.split);
+const roleNames={candidate:"训练／验证候选（待划分）",train:"训练集",val:"验证集",eval:"评测集"};
+function addScope(value,label){const option=document.createElement("option");option.value=value;option.textContent=label;$("scope").appendChild(option);}
+addScope("all",`全部 ${all.length} 条`);
+for(const name of ["train","val","eval","candidate"]){const count=all.filter(a=>role(a)===name).length;if(count)addScope(name,`${roleNames[name]} ${count} 条`);}
+addScope("pending","尚未复核");addScope("reviewed","已复核");
+const hasSuggestions=all.some(a=>a.ai_proposed_joint_label);
+document.querySelector("#suggestions summary").textContent=hasSuggestions?"展开 AI 建议和原始标签（建议先自行判断）":"展开来源单模态标签（仅供参考）";
+if(all.some(a=>role(a)==="candidate"))$("notice").textContent="这批样本用于新增训练集和验证集，目前尚未划分，也没有人工联合标签。请先独立判断；来源的文字／图片标签仅供参考。不合题材、近重复或无法裁决的样本请排除并写原因。全部复核后按最终标签划分训练／验证集，现有70条评测集不参与划分。";
 $("reviewer").value=draft.reviewer||"";
 function persist(){draft.reviewer=$("reviewer").value.trim();try{localStorage.setItem(key,JSON.stringify(draft));}catch(e){$("message").textContent="浏览器无法保存本地草稿，请及时导出 JSON。";}}
 function reviewed(a){return allowed.has(draft.records[a.id]?.label);}
-function updateProgress(){const n=all.filter(reviewed).length;const main=all.filter(a=>a.split!=="challenge");const mainDone=main.filter(reviewed).length;$("progress").textContent=`已复核 ${n}/${all.length}；主数据 ${mainDone}/${main.length}`;$("fill").style.width=(100*n/all.length)+"%";$("exportComplete").disabled=mainDone!==main.length;}
-function makeFilter(){const scope=$("scope").value;filtered=all.filter(a=>scope==="all"||(scope==="main"&&a.split!=="challenge")||(scope==="pending"&&!reviewed(a))||a.split===scope);current=0;render();}
-function render(){updateProgress();if(!filtered.length){$("identity").textContent="该范围没有待显示的样本。";$("caption").textContent="可切换范围或导出复核记录。";$("image").removeAttribute("src");$("save").disabled=true;$("notes").value="";return;}$("save").disabled=false;const a=filtered[current],r=draft.records[a.id];selected=r?.label||null;$("identity").textContent=`${a.id} · ${a.split} · ${current+1}/${filtered.length}`;$("image").src=a.image;$("caption").textContent=a.text;$("notes").value=r?.notes||"";$("suggestions").open=false;$("proposal").textContent=`AI 联合标签建议：${a.ai_proposed_joint_label||"无法唯一裁决，待核验"}\n建议置信度：${a.ai_confidence}\n可见内容：${a.visible_evidence_zh}\n理由：${a.annotation_rationale_zh}\n原文字标签：${a.source_text_label}\n原图片标签：${a.source_image_label}\n注意：AI 建议不是独立人工标注。`;$("message").textContent=r?`已保存：${r.label}，复核人 ${r.reviewer}`:"尚未复核";dirty=false;paint();}
+function updateProgress(){const n=all.filter(reviewed).length;$("progress").textContent=`已复核 ${n}/${all.length}；待复核 ${all.length-n}`;$("fill").style.width=(all.length?100*n/all.length:0)+"%";$("exportComplete").disabled=!all.length||n!==all.length;}
+function makeFilter(){const scope=$("scope").value;filtered=all.filter(a=>scope==="all"||(scope==="pending"&&!reviewed(a))||(scope==="reviewed"&&reviewed(a))||role(a)===scope);current=0;render();}
+function render(){updateProgress();if(!filtered.length){$("identity").textContent="该范围没有待显示的样本。";$("caption").textContent="可切换范围或导出复核记录。";$("image").removeAttribute("src");$("save").disabled=true;$("notes").value="";selected=null;dirty=false;paint();return;}$("save").disabled=false;const a=filtered[current],r=draft.records[a.id];selected=r?.label||null;$("identity").textContent=`${a.id} · ${roleNames[role(a)]||"待划分"} · ${current+1}/${filtered.length}`;$("image").src=a.image;$("caption").textContent=a.text;$("notes").value=r?.notes||"";$("suggestions").open=false;const suggestion=a.ai_proposed_joint_label?`AI 联合标签建议：${a.ai_proposed_joint_label}\n建议置信度：${a.ai_confidence||"待核验"}\n可见内容：${a.visible_evidence_zh||"未填写"}\n理由：${a.annotation_rationale_zh||"未填写"}\n`:"本批未生成 AI 联合标签建议。\n";$("proposal").textContent=suggestion+`来源文字标签：${a.source_text_label||"未提供"}\n来源图片标签：${a.source_image_label||"未提供"}\n来源标签和AI建议均不能代替人工图文联合标签。`;$("message").textContent=r?`已保存：${r.label}，复核人 ${r.reviewer}`:"尚未复核";dirty=false;paint();}
 function paint(){document.querySelectorAll("[data-label]").forEach(b=>b.classList.toggle("selected",b.dataset.label===selected));}
 document.querySelectorAll("[data-label]").forEach(b=>b.addEventListener("click",()=>{selected=b.dataset.label;dirty=true;paint();}));
 $("notes").addEventListener("input",()=>dirty=true);
