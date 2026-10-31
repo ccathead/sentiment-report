@@ -22,7 +22,7 @@ python scripts/consolidate_evaluation.py
 python scripts/experiment.py check-data
 ```
 
-程序逐条核对汇总前后的输入顺序、图片和标签。原始`datasets/mvsa_daily_v1/`保留用于追溯旧结果，其旧分组不再用于当前实验流程。旧结果的manifest仍绑定原目录，复算旧结果时显式传`--dataset datasets/mvsa_daily_v1`；当前新结果的额外评分或比较使用`--dataset datasets/mvsa_eval_v1`，`run-all`会自动使用正确数据评分。新结果另取输出目录，勿覆盖旧基线。训练与验证集见[新增数据复核及微调指南](llamafactory-guide.md)。
+程序逐条核对汇总前后的输入顺序、图片和标签。原始`datasets/mvsa_daily_v1/`保留用于追溯旧结果，其旧分组不再用于当前实验流程。旧结果的manifest仍绑定原目录，复算旧结果时显式传`--dataset datasets/mvsa_daily_v1`；当前新结果的额外评分或比较使用`--dataset datasets/mvsa_eval_v1`，`run-all`会自动使用正确数据评分。新结果另取输出目录，勿覆盖旧基线。微调与LoRA模型评测见[直接PEFT指南](peft-guide.md)。
 
 按用户已跑通的命令，当前统一使用 **GPU 2**、`HF_HOME=/data/X-D-Lab/ty/.cache/huggingface` 和 `HF_HUB_OFFLINE=1`。每条启动命令都直接带上这些设置，不需要提前全局 export。模型配置中的 `cuda:0` 不用改；GPU 2 是否仍可用需以实际运行时状态为准。
 

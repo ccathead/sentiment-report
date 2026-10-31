@@ -150,6 +150,11 @@ class DMXBackend:
                 "request_body_sha256": object_hash(body)}
 
 
+def user_messages(prompt, with_image=True):
+    content = ([{"type": "image"}] if with_image else []) + [{"type": "text", "text": prompt}]
+    return [{"role": "user", "content": content}]
+
+
 class HFBackend:
     def __init__(self, cfg):
         import torch
@@ -160,6 +165,8 @@ class HFBackend:
         revision = cfg.get("revision", "main")
         if not re.fullmatch(r"[a-f0-9]{40}", revision):
             raise ValueError("Pin HF revision first with the lock-model command")
+        from .adapters import adapter_snapshot
+        adapter = adapter_snapshot(cfg)
         self.cfg, self.torch = cfg, torch
         self.device = cfg.get("device", "cuda:0")
         torch.cuda.set_device(self.device)
@@ -190,18 +197,22 @@ class HFBackend:
                      "image_processor": self.processor.image_processor.to_dict(),
                      "do_sample": False, "num_beams": 1, "attention": "sdpa",
                      "determinism": "seeded greedy generation; hardware/library bitwise equality not guaranteed"}
+        self.processor_sha256 = object_hash({"chat_template": template, "image_processor": self.processor.image_processor.to_dict()})
+        if adapter:
+            if adapter["metadata"].get("processor_sha256") != self.processor_sha256:
+                raise ValueError("Adapter processor/chat template differs from current inference")
+            from peft import PeftModel
+            self.model = PeftModel.from_pretrained(self.model, adapter["path"], is_trainable=False).eval()
+            self.info["adapter"] = adapter
 
     def infer(self, prompt, image_path):
         from PIL import Image, ImageOps
 
-        content = []
         image = None
         if image_path is not None:
             with Image.open(image_path) as source:
                 image = ImageOps.exif_transpose(source).convert("RGB")
-            content.append({"type": "image"})
-        content.append({"type": "text", "text": prompt})
-        messages = [{"role": "user", "content": content}]
+        messages = user_messages(prompt, image is not None)
         rendered = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         inputs = self.processor(text=[rendered], images=[image] if image is not None else None,
                                 padding=True, return_tensors="pt")

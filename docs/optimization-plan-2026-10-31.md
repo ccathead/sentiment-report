@@ -1,6 +1,6 @@
 # 四模型优化实验方案
 
-日期：2026-10-31。当前阶段为基线审计、数据准备与配置准备；未训练模型、未启动付费API实验、未产生优化后分数。用户确认：Qwen和LLaVA采用LLaMA-Factory微调，另建训练/验证集，保留70条评测集；DeepSeek和Kimi采用提示词工程。实际操作见[数据复核和LLaMA-Factory指南](llamafactory-guide.md)。
+日期：2026-10-31。当前已完成数据准备和直接PEFT代码接入；未训练7B模型、未启动付费API优化实验、未产生优化后分数。用户最终选择Qwen/LLaVA使用Transformers + PEFT LoRA，训练300/验证60，固定评测70；DeepSeek/Kimi使用提示词工程。实际操作见[PEFT训练与评测指南](peft-guide.md)，LLaMA-Factory为保留的历史方案。
 
 ## 1 当前基线与证据状态
 
@@ -41,7 +41,7 @@ DeepSeek比Kimi少正确1条，同时多1条无效；每条占总Accuracy的1.43
 
 ## 3 Qwen与LLaVA采用LoRA监督微调
 
-两者统一采用LLaMA-Factory v0.9.3的LoRA SFT；该版本支持两个模型，Qwen使用qwen2_vl模板，LLaVA使用llava模板。其依赖与现有评测环境不同，单建sentiment-train环境。已准备configs/finetuning/下两个YAML，尚需在服务器验证，不更换原评测环境。
+两者统一采用Transformers 4.57.1 + PEFT 0.17.1的LoRA SFT，沿用现有基础评测的固定模型revision、processor和原生聊天模板。建议克隆原评测Conda环境再加PEFT。入口scripts/train_lora.py，配置configs/training/下两个JSON；现有300/60数据直接复用，GPU训练待服务器验证。
 
 | 项目 | 建议起点 性能待验证 |
 |---|---|
@@ -53,16 +53,16 @@ DeepSeek比Kimi少正确1条，同时多1条无效；每条占总Accuracy的1.43
 | 批量 | 每卡1条，梯度累计8步，开启梯度检查点 |
 | 训练预算 | 最多3个epoch；当前配置按独立验证集eval_loss最低选checkpoint；生成式Macro-F1选优尚未实现 |
 | 数值精度 | Qwen优先沿用BF16；LLaVA从已验证FP16路径起步并检查梯度稳定性 |
-| 监督目标 | 图片+配文+baseline任务提示 → 人工标签字符串；loss仅计算assistant答案token |
+| 监督目标 | 图片+配文+baseline任务提示 → 来源一致性派生标签；loss仅计算assistant答案及结束token |
 | 保存 | 每个模型单独保存adapter、配置、分割ID、训练命令、环境、loss和验证指标 |
 
 这些数值是待试起点，不是已选定的最优参数。先对少量训练数据验证前向、反向、非空答案监督、可训练参数和显存；不得根据当前70条评测分数挑训练轮次。
 
-多模态训练要检查padding、图像token、用户提示均被正确mask，答案token有非零监督。当前设置train_on_prompt=false，仍需实际核对两个模型tokenized样本。不能把整段输入重构loss下降当成分类能力提升。
+多模态collator用同一图片分别处理用户前缀和完整对话，强制核对token前缀一致、答案解码等于目标标签，将用户/图像/padding设为-100，只监督答案及结束token。CPU张量测试已通过，真实模型仍需两步检查；不能把整段输入重构loss下降当成分类能力提升。
 
-不要随意截断含图像token的序列。当前LLaMA-Factory草案cutoff_len=4096，必须检查新数据是否完整保留图像及答案。推理的低显存占用不能直接保证训练显存足够；正式训练前重新确认GPU 2的可用资源。
+max_length4096只作为检查上限，超长直接报错，不静默截断。完整训练前逐条做token/mask检查，避免训练中途才发现超长样本；运行前重新确认GPU2资源。
 
-当前推理代码尚不支持LoRA适配器加载。训练入口采用独立环境中的llamafactory-cli，已准备配置和命令但尚未实跑；后续需补adapter评测加载或合并权重入口，保留现有基础模型和预测文件。数据未复核完成前不启动正式训练，也不声称配置可保证提升。
+现有HF推理入口已接入PEFT适配器加载，训练结束生成evaluation-config.json，核对基础模型/处理器身份并记录适配器内容指纹。smoke适配器拒绝进入正式评测。指南提供每模型一个nohup任务：训练成功后自动完整评测70条；已有基础模型和预测文件不覆盖。实现尚未在A800上运行，不保证提升。
 
 ## 4 DeepSeek与Kimi的提示词路线
 
@@ -108,23 +108,23 @@ P2的示例需覆盖可解释的对照：客观介绍与赞许、坏天气的事
 
 | 模型 | 基础 | 优化 | 是否已完成优化 |
 |---|---|---|---|
-| Qwen | 原模型+baseline | LoRA模型+同一baseline | 否，待训练数据 |
-| LLaVA | 原模型+baseline | LoRA模型+同一baseline | 否，待训练数据 |
-| DeepSeek | API+baseline | 同一API模型+验证集选定的prompt | 否，待原始错误与验证数据 |
-| Kimi | API+baseline | 同一API模型+验证集选定的prompt | 否，待原始错误与验证数据 |
+| Qwen | 原模型+baseline | LoRA模型+同一baseline | 否，待服务器训练与评测 |
+| LLaVA | 原模型+baseline | LoRA模型+同一baseline | 否，待服务器训练与评测 |
+| DeepSeek | API+baseline | 同一API模型+验证集选定的prompt | 否，待提示优化与预算修复对照 |
+| Kimi | API+baseline | 同一API模型+验证集选定的prompt | 否，待提示优化 |
 
 每行比较同一批评测ID与人工标签，报告Accuracy、Macro-F1、neutral召回、无效数及逐题变化。不同优化方式的提升幅度不是公平的“LoRA对提示工程”算法优劣实验，因为基础模型也同时不同。
 
 ## 6 已完成与待执行
 
 - 已完成：四组基础成绩本地重算；API完整目录哈希归档、DeepSeek无效原因定位；P1提示及run-all可选prompt接口。
-- 用户已确认：新增训练/验证集，保留70条；微调框架LLaMA-Factory。
-- 已准备360条无联合gold的候选及离线review.html，精确ID/图片/归一配文去重通过；近重复与题材相关性待人工复核。scripts/prepare_finetuning.py负责复核后导出Alpaca数据和分层train/val，拒绝未完成复核与数据泄漏。两个LoRA YAML及独立Conda/nohup命令已写入专门指南。
-- 待执行：人工复核/排除后导出数据；训练环境和两步训练检查；adapter评测加载；真正多图few-shot。旧baseline/evidence对照仍待提供。当前无优化分数。
+- 用户最终确认：直接PEFT微调；新增数据不再人工复核，采用MVSA来源一致性派生标签，保留70条评测。
+- 已完成：正式train300/val60及精确去重；直接PEFT训练入口、答案mask与长度检查、语言层LoRA筛选、最佳验证loss模型保存、适配器评测加载与内容指纹；两模型check-only及54项本地测试通过。命令见PEFT指南。
+- 待执行：服务器环境安装、真实GPU两步训练、完整训练与70条评测；真正多图few-shot。旧baseline/evidence对照仍待提供，近重复/题材未人工核验。当前无优化分数。
 
 ## 参考依据
 
 1. [Hugging Face PEFT LoRA文档](https://huggingface.co/docs/peft/package_reference/lora)。用于方法实现，不提供本项目收益保证。
-2. [TRL 0.24 SFTTrainer文档](https://huggingface.co/docs/trl/v0.24.0/en/sft_trainer)。版本用于评估与现有环境的适配，尚未在服务器安装或验证；重点核对VLM数据、图像token和答案mask。
+2. [Transformers 4.57.1 Trainer实现](https://github.com/huggingface/transformers/blob/v4.57.1/src/transformers/trainer.py)。当前直接PEFT入口使用Trainer，不依赖TRL；沿用已有推理栈，实际GPU兼容性仍待服务器验证。
 3. Zhao et al. [Calibrate Before Use Improving Few-shot Performance of Language Models](https://proceedings.mlr.press/v139/zhao21c.html), ICML 2021。本文借用其对示例/顺序敏感性的提醒，不把其文本任务数值转移为当前多模态任务结论。
 4. Huang et al. [Large Language Models Cannot Self-Correct Reasoning Yet](https://openreview.net/forum?id=IkmD3fKBPQ), ICLR 2024。该研究针对无外部反馈的推理自纠，不证明图文情感任务的所有反思方法无效。

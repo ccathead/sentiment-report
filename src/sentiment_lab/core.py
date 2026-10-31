@@ -154,7 +154,7 @@ def parse_label(text):
 def load_config(path, allow_placeholder=False):
     cfg = read_json(path)
     common = {"backend", "model"}
-    hf = {"architecture", "revision", "dtype", "device", "min_pixels", "max_pixels", "max_new_tokens", "seed"}
+    hf = {"architecture", "revision", "dtype", "device", "min_pixels", "max_pixels", "max_new_tokens", "seed", "adapter_path"}
     api = {"base_url", "endpoint", "api_key_env", "max_output_tokens", "temperature", "extra_body",
            "timeout_seconds", "max_retries", "request_interval_seconds", "chat_token_parameter"}
     backend = cfg.get("backend")
@@ -168,6 +168,8 @@ def load_config(path, allow_placeholder=False):
     if "REPLACE_" in cfg["model"] and not allow_placeholder:
         raise ValueError("Choose an account-verified visual model id in a local config first")
     if backend == "hf":
+        if "adapter_path" in cfg and (not isinstance(cfg["adapter_path"], str) or not cfg["adapter_path"].strip()):
+            raise ValueError("adapter_path must be a nonempty local path")
         if cfg.get("architecture") not in ("llava", "qwen2_5_vl"):
             raise ValueError("Unsupported HF architecture")
         if cfg.get("dtype", "float16") not in ("float16", "bfloat16"):
@@ -215,14 +217,14 @@ def code_state():
             return p.stdout.strip() if p.returncode == 0 else None
         except (OSError, subprocess.TimeoutExpired):
             return None
-    files = list((ROOT / "src").rglob("*.py")) + [ROOT / "scripts" / "experiment.py"]
+    files = list((ROOT / "src").rglob("*.py")) + [ROOT / "scripts" / name for name in ("experiment.py", "train_lora.py")]
     return {"commit": git("rev-parse", "HEAD"), "dirty": bool(git("status", "--porcelain")),
             "source_sha256": {p.relative_to(ROOT).as_posix(): file_hash(p) for p in sorted(files)}}
 
 
 def environment():
     versions = {}
-    for package in ("Pillow", "torch", "torchvision", "transformers", "accelerate", "huggingface-hub", "numpy", "safetensors"):
+    for package in ("Pillow", "torch", "torchvision", "transformers", "accelerate", "huggingface-hub", "numpy", "safetensors", "peft"):
         try:
             versions[package] = importlib.metadata.version(package)
         except importlib.metadata.PackageNotFoundError:

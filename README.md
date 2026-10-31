@@ -8,7 +8,7 @@
 
 **基础评测：[全数据基础评测指南](docs/experiment-guide.md)**。使用 `run-all`，让 Qwen 用图文输入和基础提示跑完全部 70 条并自动评分，再运行 LLaVA。不需要手动切换数据划分、执行 freeze 或额外评分；原有数据和历史结果保留。
 
-**优化准备：[LLaMA-Factory数据与运行指南](docs/llamafactory-guide.md)**。另建训练/验证集，现有70条保留；Qwen/LLaVA采用独立Conda环境中的LoRA，DeepSeek/Kimi采用提示优化。已有数据复核/导出程序与训练配置，尚未完成GPU训练、适配器评测接入或真正多图few-shot，不代表已有优化分数。
+**微调入口：[直接PEFT训练与评测指南](docs/peft-guide.md)**。Qwen/LLaVA使用Transformers + PEFT LoRA，无需LLaMA-Factory；入口`scripts/train_lora.py`，配置`configs/training/`。训练成功后自动生成LoRA评测配置，可接入现有run-all。DeepSeek/Kimi继续采用提示优化。已完成代码与CPU检查，真实GPU训练和真正多图few-shot仍待执行，不代表已有优化分数。
 
 当前只有训练集`train`、验证集`val`和评测集`eval`。评测集是原70条的无损汇总，`run-all`默认读取`datasets/mvsa_eval_v1/`；服务器首次更新后执行`python scripts/consolidate_evaluation.py`生成。旧分组仅保留作历史记录。
 
@@ -38,7 +38,7 @@ HF_HUB_OFFLINE=1 \
 nohup python -u scripts/experiment.py run-all --config configs/qwen.locked.json --out runs/qwen-all-baseline >> runs/logs/qwen-all-baseline.log 2>&1 < /dev/null &
 ```
 
-`run-all` 固定图文输入，默认使用 `baseline` 提示；可用 `--prompt 提示名或路径` 指定另一个模板，程序会记录其内容与哈希。读取单一评测集全部样本，并在 `evaluation/` 保存汇总评分。后续方案见[四模型优化设计](docs/optimization-plan-2026-10-31.md)，其中新增提示尚未验证，LoRA配置已准备，适配器评测和多模态few-shot尚待实现。历史分阶段命令保留在[旧版指南](docs/staged-evaluation-guide.md)。仓库不包含图片、原始帖子、复核内容、运行输出或密钥；云端需另行放入已冻结的数据包。
+`run-all` 固定图文输入，默认使用 `baseline` 提示；可用 `--prompt 提示名或路径` 指定另一个模板，程序会记录其内容与哈希。读取单一评测集全部样本，并在 `evaluation/` 保存汇总评分。LoRA模型使用训练输出的`evaluation-config.json`，程序核对基础模型、处理器及适配器文件指纹。后续方案见[四模型优化设计](docs/optimization-plan-2026-10-31.md)。历史分阶段命令保留在[旧版指南](docs/staged-evaluation-guide.md)。仓库不包含图片、原始帖子、复核内容、运行输出或密钥；云端需另行放入数据包。
 
 ## 数据构建与复核记录
 

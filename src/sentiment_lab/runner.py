@@ -38,6 +38,9 @@ def run_experiment(*, dataset, config_path, prompt_path, split, condition, out,
             "split": split, "condition": condition, "selected_ids": [r["id"] for r in inputs],
             "source_sha256": code["source_sha256"], "dry_run": dry_run,
             "protocol_sha256": file_hash(protocol) if protocol else None}
+    if cfg.get("adapter_path"):
+        from .adapters import adapter_snapshot
+        spec["adapter"] = adapter_snapshot(cfg)
     if split == "all":
         spec["evaluation_purpose"] = "Descriptive full-dataset baseline; includes previously used development samples, not a held-out test."
     elif split == "eval":

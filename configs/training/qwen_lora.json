@@ -1,0 +1,14 @@
+{
+  "base_config": "configs/qwen.locked.json",
+  "dataset": "datasets/mvsa_sft_v1",
+  "evaluation_dataset": "datasets/mvsa_eval_v1",
+  "lora_rank": 16,
+  "lora_alpha": 32,
+  "lora_dropout": 0.05,
+  "learning_rate": 0.00005,
+  "epochs": 3,
+  "gradient_accumulation_steps": 8,
+  "warmup_ratio": 0.1,
+  "max_length": 4096,
+  "seed": 20261031
+}
