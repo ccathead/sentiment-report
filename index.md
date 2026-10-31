@@ -4,6 +4,8 @@
 
 ## 四模型优化阶段（2026-10-31）
 
+- 文档清理：按用户要求删除无效的LLaMA-Factory运行指南和旧分阶段评测指南，精简环境参考为安装/API配置；修复README和项目笔记引用。当前运行入口为[PEFT训练与评测](docs/peft-guide.md)、[基础评测](docs/experiment-guide.md)和[环境/API参考](docs/experiment-reference.md)，历史决策与结果仍保留。
+
 - 最新框架决定：用户改选直接Transformers + PEFT LoRA，LLaMA-Factory保留为历史方案。已新增scripts/train_lora.py、configs/training/两模型JSON、requirements-training.txt和[PEFT运行指南](docs/peft-guide.md)。复用300/60数据，固定原模型revision、processor与任务提示；只训练语言注意力LoRA，答案mask及长度严格检查。HF评测入口已支持adapter并记录文件指纹，训练后生成evaluation-config.json，可后台串行完成单模型训练与70条评测。54项本地测试和两模型真实数据check-only通过；本地无CUDA/7B权重，GPU两步训练与真实保存后推理待服务器验证。未产生优化分数。
 
 - 最新数据决定：用户不再复核新增候选，授权直接采用原MVSA文字/图片一致标签。已正式生成datasets/mvsa_sft_v1/：训练300（每类100）、验证60（每类20），seed20261031。标签出处逐条记录为source-agreement/not_reviewed，未冒充人工联合gold；原70条评测及原始候选保留。43项CPU测试通过；训练配置已指向正式数据，下一步传输服务器后做两步训练检查，尚未启动微调。此前“必须复核”条目为历史方案，当前不再要求用户复核。
@@ -14,7 +16,7 @@
 - 两组API完整目录已回传、逐文件哈希归档并重算：`deepseek-v4.1-flash`为57/70、Accuracy 81.43%、Macro-F1 0.8074、无效1；`kimi-k3`为58/70、Accuracy 82.86%、Macro-F1 0.8181、无效0。两组请求文件与Qwen基线逐字节一致，返回型号字符串与请求相同，但实际权重/厂商路由仍待独立核验。[复核记录](reports/optimization-2026-10-31/API基线复核.md)。
 - 已核对旧evidence：增加抽象检查步骤但没有示例，且对neutral与混合态度的边界需与标注规范统一。用户反馈其未改善；对应完整对照数据待核验，不宣称任何提示方法已最优。
 - 已准备未验证的[boundary_v1提示](prompts/boundary_v1.txt)，并使run-all支持可选`--prompt`，默认仍为baseline。真正多模态few-shot需要新增示例消息构建；LoRA需要训练入口和adapter加载支持，当前尚未完成或运行。
-- 用户已确认另建训练/验证集、保留70条，采用LLaMA-Factory。已生成[360条离线候选复核页面](datasets/mvsa_finetuning_candidates_v1/review.html)，排除原70条和历史排除样本的相同ID/图片/归一配文；尚无人工联合标签，近重复与题材需复核。准备了严格复核后导出程序、两个LoRA配置及[Conda和后台训练指南](docs/llamafactory-guide.md)。训练环境单独建立，不修改当前评测环境。39项CPU测试通过，未进行GPU训练。
+- 历史准备阶段：用户曾选择LLaMA-Factory，后改为直接PEFT。曾生成[360条候选复核页面](datasets/mvsa_finetuning_candidates_v1/review.html)和两个旧LoRA YAML；后续数据标签与框架决定以上方最新状态为准。旧框架指南已删除，当前使用[PEFT指南](docs/peft-guide.md)。当时39项CPU测试通过，未进行GPU训练。
 - DeepSeek唯一无效mvsa_2533为输出预算耗尽：completion512、reasoning512、最终答案空、finish_reason=length；工程修复与prompt收益需分开。下一步为新数据复核→导出train/val→两步训练核验；之后补adapter评测与多图few-shot。旧baseline/evidence完整对照仍待提供，不更改冻结gold。
 
 ## 实验代码与仓库（2026-10-30 更新）
@@ -25,7 +27,7 @@
 
 - 已验证的启动设置（用户确认）：Qwen 已下载到服务器，使用 `CUDA_DEVICE_ORDER=PCI_BUS_ID`、`CUDA_VISIBLE_DEVICES=2`、`HF_HOME=/data/X-D-Lab/ty/.cache/huggingface`、`HF_HUB_OFFLINE=1` 的开发集命令已跑通。当前全数据指南与 README 的 Qwen、LLaVA 和续跑示例统一采用这些设置，继续使用 `run-all` 完成全部 70 条；LLaVA 指定版本是否已完整缓存待核验，尚未下载时须先允许联网下载。具体模型分数未回传。
 
-- 当前方案（2026-10-30 用户明确调整）：先只做全数据基础评测，固定图文输入与 `baseline` 提示；Qwen 完整跑完全部 70 条并自动评分后，再运行 LLaVA。新增 `run-all` 命令，一次加载模型、读取原有三份数据、统一评分，不要求手工分阶段或 freeze。原有数据/结果保留，操作见[简化运行指南](docs/experiment-guide.md)，此前指南保留在[分阶段历史指南](docs/staged-evaluation-guide.md)。全数据成绩包含已使用的开发样本，记为基础评测结果。
+- 历史方案（2026-10-30 用户明确调整）：先只做全数据基础评测，固定图文输入与baseline提示；Qwen完整跑完全部70条并自动评分后，再运行LLaVA。新增run-all汇总全部数据，不要求手工分阶段或freeze。原有数据/结果保留，当前操作见[基础评测指南](docs/experiment-guide.md)；旧分阶段指南已删除。全数据成绩包含已使用的开发样本，记为基础评测结果。
 
 - 当前完成项：用户确认 Qwen 的部分验证已完成；截图显示 `qwen-dev-baseline`、`qwen-dev-evidence` 及评分文件。尚未读取服务器的 `metrics.json`，具体分数、有效预测数与全部运行状态待核验，不代填结论。
 

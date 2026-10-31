@@ -16,7 +16,7 @@
 
 模型命令直接用 `CUDA_VISIBLE_DEVICES` 指定 GPU，使用 `nohup python -u` 后台运行；输出与报错写入 `runs/logs/`，并保存 PID。每个模型只加载一次，预测完自动评分；日志确认 Qwen 完成后再启动 LLaVA。整份数据的分数标记为全数据基础评测。
 
-首次安装 Conda 环境、数据放置、DMXAPI 配置和版本依据保留在[原版环境与实验参考](docs/experiment-reference.md)。基础环境文件为 `environment.yml`；创建后仍需安装 GPU 依赖。
+首次安装Conda环境和DMXAPI配置见[环境与API参考](docs/experiment-reference.md)。基础环境文件为`environment.yml`；创建后仍需安装GPU依赖。训练使用上方PEFT指南。
 
 | 文件 | 用途 |
 |---|---|
@@ -38,7 +38,7 @@ HF_HUB_OFFLINE=1 \
 nohup python -u scripts/experiment.py run-all --config configs/qwen.locked.json --out runs/qwen-all-baseline >> runs/logs/qwen-all-baseline.log 2>&1 < /dev/null &
 ```
 
-`run-all` 固定图文输入，默认使用 `baseline` 提示；可用 `--prompt 提示名或路径` 指定另一个模板，程序会记录其内容与哈希。读取单一评测集全部样本，并在 `evaluation/` 保存汇总评分。LoRA模型使用训练输出的`evaluation-config.json`，程序核对基础模型、处理器及适配器文件指纹。后续方案见[四模型优化设计](docs/optimization-plan-2026-10-31.md)。历史分阶段命令保留在[旧版指南](docs/staged-evaluation-guide.md)。仓库不包含图片、原始帖子、复核内容、运行输出或密钥；云端需另行放入数据包。
+`run-all` 固定图文输入，默认使用 `baseline` 提示；可用 `--prompt 提示名或路径` 指定另一个模板，程序会记录其内容与哈希。读取单一评测集全部样本，并在 `evaluation/` 保存汇总评分。LoRA模型使用训练输出的`evaluation-config.json`，程序核对基础模型、处理器及适配器文件指纹。后续方案见[四模型优化设计](docs/optimization-plan-2026-10-31.md)。仓库不包含图片、原始帖子、复核内容、运行输出或密钥；云端需另行放入数据包。
 
 ## 数据构建与复核记录
 
