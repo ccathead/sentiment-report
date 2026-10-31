@@ -195,6 +195,9 @@ class HFBackend:
                      "load_seconds": time.monotonic() - started,
                      "chat_template": template, "chat_template_sha256": object_hash(template),
                      "image_processor": self.processor.image_processor.to_dict(),
+                     "image_processor_class": type(self.processor.image_processor).__name__,
+                     "loaded_dtype": cfg.get("dtype", "float16"),
+                     "hf_device_map": {k: str(v) for k, v in getattr(self.model, "hf_device_map", {}).items()},
                      "do_sample": False, "num_beams": 1, "attention": "sdpa",
                      "determinism": "seeded greedy generation; hardware/library bitwise equality not guaranteed"}
         self.processor_sha256 = object_hash({"chat_template": template, "image_processor": self.processor.image_processor.to_dict()})

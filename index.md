@@ -4,6 +4,8 @@
 
 ## 四模型优化阶段（2026-10-31）
 
+- 用户回传GPU试跑：Qwen两步smoke显示有限非零梯度、Training completed及adapter保存路径，确认训练/保存成功；实际进程退出与重新加载未独立核验。LLaVA在旧版首次梯度检查失败，原信息混合缺失/非有限/全零，具体状态待核验；FP16溢出仅为候选原因。现独立配置两模型BF16训练（保留原推理精度），LoRA参数FP32，增加gradient-diagnostics.json并允许短暂全零批次后继续验证。57项本地测试通过，LLaVA新版本GPU试跑待用户重跑，暂无完整训练或优化分数。重跑命令已加入PEFT指南，保留旧失败目录。
+
 - 文档清理：按用户要求删除无效的LLaMA-Factory运行指南和旧分阶段评测指南，精简环境参考为安装/API配置；修复README和项目笔记引用。当前运行入口为[PEFT训练与评测](docs/peft-guide.md)、[基础评测](docs/experiment-guide.md)和[环境/API参考](docs/experiment-reference.md)，历史决策与结果仍保留。
 
 - 最新框架决定：用户改选直接Transformers + PEFT LoRA，LLaMA-Factory保留为历史方案。已新增scripts/train_lora.py、configs/training/两模型JSON、requirements-training.txt和[PEFT运行指南](docs/peft-guide.md)。复用300/60数据，固定原模型revision、processor与任务提示；只训练语言注意力LoRA，答案mask及长度严格检查。HF评测入口已支持adapter并记录文件指纹，训练后生成evaluation-config.json，可后台串行完成单模型训练与70条评测。54项本地测试和两模型真实数据check-only通过；本地无CUDA/7B权重，GPU两步训练与真实保存后推理待服务器验证。未产生优化分数。

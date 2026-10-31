@@ -1,5 +1,6 @@
 {
   "base_config": "configs/llava.json",
+  "training_dtype": "bfloat16",
   "dataset": "datasets/mvsa_sft_v1",
   "evaluation_dataset": "datasets/mvsa_eval_v1",
   "lora_rank": 16,

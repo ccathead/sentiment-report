@@ -52,7 +52,7 @@ DeepSeek比Kimi少正确1条，同时多1条无效；每条占总Accuracy的1.43
 | 优化 | 初始学习率5e-5，AdamW，warmup_ratio=0.1 |
 | 批量 | 每卡1条，梯度累计8步，开启梯度检查点 |
 | 训练预算 | 最多3个epoch；当前配置按独立验证集eval_loss最低选checkpoint；生成式Macro-F1选优尚未实现 |
-| 数值精度 | Qwen优先沿用BF16；LLaVA从已验证FP16路径起步并检查梯度稳定性 |
+| 数值精度 | A800上两者训练BF16、LoRA参数FP32；推理仍为Qwen BF16、LLaVA FP16，训练精度独立记录 |
 | 监督目标 | 图片+配文+baseline任务提示 → 来源一致性派生标签；loss仅计算assistant答案及结束token |
 | 保存 | 每个模型单独保存adapter、配置、分割ID、训练命令、环境、loss和验证指标 |
 

@@ -68,6 +68,39 @@ def language_lora_targets(model):
     return sorted(names)
 
 
+def gradient_report(model):
+    """Inspect actual gradients without conflating disconnected, nonfinite and zero."""
+    import torch
+
+    result = {"trainable_tensors": 0, "missing_tensors": 0, "nonfinite_tensors": 0,
+              "nonzero_tensors": 0, "nonfinite_examples": [], "finite_max_abs": 0.0}
+    for name, parameter in model.named_parameters():
+        if not parameter.requires_grad:
+            continue
+        result["trainable_tensors"] += 1
+        grad = parameter.grad
+        if grad is None:
+            result["missing_tensors"] += 1
+            continue
+        if not bool(torch.isfinite(grad).all()):
+            result["nonfinite_tensors"] += 1
+            if len(result["nonfinite_examples"]) < 5:
+                result["nonfinite_examples"].append(name)
+            continue
+        if bool(torch.count_nonzero(grad)):
+            result["nonzero_tensors"] += 1
+            result["finite_max_abs"] = max(result["finite_max_abs"], float(grad.detach().abs().max()))
+    if result["trainable_tensors"] == result["missing_tensors"]:
+        result["status"] = "missing"
+    elif result["nonfinite_tensors"]:
+        result["status"] = "nonfinite"
+    elif result["nonzero_tensors"]:
+        result["status"] = "finite_nonzero"
+    else:
+        result["status"] = "all_zero"
+    return result
+
+
 class AnswerOnlyCollator:
     """One example per microbatch avoids model-specific visual batch packing."""
     def __init__(self, processor, max_length):

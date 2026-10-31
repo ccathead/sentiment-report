@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .adapters import model_spec
 from .core import ROOT, code_state, environment, file_hash, load_config, now, object_hash, read_json, write_json
-from .training_data import AnswerOnlyCollator, language_lora_targets, load_training_data
+from .training_data import AnswerOnlyCollator, gradient_report, language_lora_targets, load_training_data
 
 
 def project_path(value):
@@ -19,8 +19,11 @@ def settings(path):
     cfg = read_json(path)
     required = {"base_config", "dataset", "evaluation_dataset", "lora_rank", "lora_alpha", "lora_dropout",
                 "learning_rate", "epochs", "gradient_accumulation_steps", "warmup_ratio", "max_length", "seed"}
-    if set(cfg) != required:
+    if not required <= set(cfg) or set(cfg) - required - {"training_dtype"}:
         raise ValueError("Training config has missing or unknown fields")
+    cfg.setdefault("training_dtype", "bfloat16")
+    if cfg["training_dtype"] not in ("bfloat16", "float32"):
+        raise ValueError("Training uses bfloat16 on A800, or float32; FP16 inference is configured separately")
     for key in ("lora_rank", "lora_alpha", "gradient_accumulation_steps", "max_length", "seed"):
         if type(cfg[key]) is not int or cfg[key] < 1:
             raise ValueError(f"{key} must be a positive integer")
@@ -41,7 +44,8 @@ def train(config_path, out=None, *, check_only=False, smoke=False, resume=None):
     data, manifest = load_training_data(dataset, project_path(cfg["evaluation_dataset"]), ROOT / "prompts/baseline.txt")
     if check_only:
         print({"status": "passed", "train": len(data["train"]), "val": len(data["val"]),
-               "label_policy": manifest["label_policy"], "base_model": model_spec(base)}, flush=True)
+               "label_policy": manifest["label_policy"], "base_model": model_spec(base),
+               "training_dtype": cfg["training_dtype"]}, flush=True)
         return
     if out is None:
         raise ValueError("--out required for training")
@@ -74,10 +78,13 @@ def train(config_path, out=None, *, check_only=False, smoke=False, resume=None):
         from transformers import Trainer, TrainerCallback, TrainingArguments, set_seed
         from .backends import HFBackend
 
-        if not torch.cuda.is_available() or int(os.environ.get("WORLD_SIZE", "1")) != 1:
+        if (not torch.cuda.is_available() or torch.cuda.device_count() != 1
+                or int(os.environ.get("WORLD_SIZE", "1")) != 1):
             raise ValueError("Select one CUDA GPU; this entry supports single-process training only")
+        if cfg["training_dtype"] == "bfloat16" and not torch.cuda.is_bf16_supported():
+            raise ValueError("This GPU does not support BF16; use float32 training or a BF16-capable GPU")
         set_seed(cfg["seed"])
-        backend = HFBackend({**base, "seed": cfg["seed"]})
+        backend = HFBackend({**base, "dtype": cfg["training_dtype"], "seed": cfg["seed"]})
         targets = language_lora_targets(backend.model)
         lora = LoraConfig(task_type=TaskType.CAUSAL_LM, r=cfg["lora_rank"], lora_alpha=cfg["lora_alpha"],
                           lora_dropout=cfg["lora_dropout"], target_modules=targets, bias="none",
@@ -85,7 +92,14 @@ def train(config_path, out=None, *, check_only=False, smoke=False, resume=None):
         model = get_peft_model(backend.model, lora)
         model.peft_config["default"].base_model_name_or_path = base["model"]
         model.config.use_cache = False
+        model.config.get_text_config().use_cache = False
+        model.generation_config.use_cache = False
         model.enable_input_require_grads()
+        # Only the small LoRA tensors are trainable; keep them in FP32.
+        for parameter in model.parameters():
+            if parameter.requires_grad:
+                parameter.data = parameter.data.float()
+        embedding_rows = model.get_input_embeddings().weight.shape[0]
         trainable = [name for name, param in model.named_parameters() if param.requires_grad]
         if not trainable or any("lora_" not in name or not any(t + ".lora_" in name for t in targets) for name in trainable):
             raise ValueError("Unexpected trainable base/vision/projector parameters")
@@ -107,7 +121,7 @@ def train(config_path, out=None, *, check_only=False, smoke=False, resume=None):
             gradient_accumulation_steps=1 if smoke else cfg["gradient_accumulation_steps"],
             learning_rate=cfg["learning_rate"], num_train_epochs=cfg["epochs"], max_steps=2 if smoke else -1,
             warmup_ratio=cfg["warmup_ratio"], lr_scheduler_type="cosine", optim="adamw_torch",
-            bf16=base.get("dtype") == "bfloat16", fp16=base.get("dtype", "float16") == "float16",
+            bf16=cfg["training_dtype"] == "bfloat16", fp16=False,
             gradient_checkpointing=True, gradient_checkpointing_kwargs={"use_reentrant": False},
             eval_strategy="no" if smoke else "epoch", save_strategy="no" if smoke else "epoch",
             load_best_model_at_end=not smoke, metric_for_best_model="eval_loss", greater_is_better=False,
@@ -117,31 +131,50 @@ def train(config_path, out=None, *, check_only=False, smoke=False, resume=None):
             seed=cfg["seed"], data_seed=cfg["seed"], push_to_hub=False)
 
         class GradientCheck(TrainerCallback):
+            confirmed = False
+            reports = None
+
             def on_log(self, args, state, control, logs=None, **kwargs):
                 for key in ("loss", "eval_loss", "grad_norm"):
                     if key in (logs or {}) and not math.isfinite(float(logs[key])):
                         raise ValueError(f"Nonfinite training metric: {key}")
 
             def on_pre_optimizer_step(self, args, state, control, model=None, **kwargs):
-                if state.global_step == 0:
-                    gradients = [p.grad for p in model.parameters() if p.requires_grad and p.grad is not None]
-                    if not gradients or not all(torch.isfinite(g).all() for g in gradients) or not any(torch.count_nonzero(g) for g in gradients):
-                        raise ValueError("First backward pass produced missing, nonfinite or zero LoRA gradients")
-                    print("First backward pass: finite nonzero LoRA gradients; base parameters frozen.", flush=True)
+                if not self.confirmed:
+                    report = {"step": state.global_step, **gradient_report(model)}
+                    self.reports = (self.reports or []) + [report]
+                    write_json(out / "gradient-diagnostics.json", self.reports)
+                    if report["status"] == "missing":
+                        raise ValueError(f"No connected LoRA gradients: {report}")
+                    if report["status"] == "nonfinite":
+                        raise ValueError(f"NaN/Inf LoRA gradients; inspect gradient-diagnostics.json: {report}")
+                    if report["status"] == "all_zero":
+                        if state.global_step >= 7:
+                            raise ValueError("LoRA gradients stayed zero for 8 attempts; inspect gradient-diagnostics.json")
+                        print("Zero LoRA gradients on this batch; checking subsequent batches.", flush=True)
+                    else:
+                        self.confirmed = True
+                        print("Backward check: finite nonzero LoRA gradients; base parameters frozen.", flush=True)
 
+        gradient_check = GradientCheck()
         trainer = Trainer(model=model, args=args, train_dataset=selected["train"],
                           eval_dataset=None if smoke else selected["val"], data_collator=collator,
-                          processing_class=backend.processor, callbacks=[GradientCheck()])
+                          processing_class=backend.processor, callbacks=[gradient_check])
         info.update(state="training", backend=backend.info)
         write_json(out / "run.json", info)
         result = trainer.train(resume_from_checkpoint=str(resume) if resume else None)
+        if not gradient_check.confirmed:
+            raise ValueError("No finite nonzero LoRA gradient was observed; no successful adapter will be saved")
         if not smoke and (trainer.state.best_metric is None or not math.isfinite(trainer.state.best_metric)):
             raise ValueError("No finite validation loss checkpoint selected")
         # Trainer has restored the best validation-loss checkpoint for formal runs.
         adapter = out / "adapter"
-        model.save_pretrained(adapter, safe_serialization=True)
+        if model.get_input_embeddings().weight.shape[0] != embedding_rows:
+            raise ValueError("Vocabulary changed unexpectedly; adapter-only export is unsafe")
+        model.save_pretrained(adapter, safe_serialization=True, save_embedding_layers=False)
         metadata = {"base_model": model_spec(base), "processor_sha256": backend.processor_sha256,
-                    "smoke_only": smoke, "training_signature": signature, "label_policy": manifest["label_policy"],
+                    "smoke_only": smoke, "training_dtype": cfg["training_dtype"],
+                    "training_signature": signature, "label_policy": manifest["label_policy"],
                     "dataset_manifest_sha256": spec["dataset_manifest_sha256"], "best_checkpoint": trainer.state.best_model_checkpoint,
                     "best_validation_loss": trainer.state.best_metric, "completed_at": now()}
         write_json(adapter / "training_metadata.json", metadata)

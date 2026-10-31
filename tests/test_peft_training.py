@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from sentiment_lab.adapters import adapter_snapshot, model_spec
 from sentiment_lab.core import ROOT, file_hash, load_config, object_hash, read_json, render_prompt, write_json
-from sentiment_lab.training_data import AnswerOnlyCollator, language_lora_targets, load_training_data
+from sentiment_lab.training_data import AnswerOnlyCollator, gradient_report, language_lora_targets, load_training_data
 
 
 class TrainingTests(unittest.TestCase):
@@ -109,6 +109,12 @@ class TrainingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "adapter_path"):
             load_config(path)
 
+    def test_llava_training_precision_does_not_change_inference_precision(self):
+        from sentiment_lab.training import settings
+        cfg, base = settings(ROOT / "configs/training/llava_lora.json")
+        self.assertEqual(cfg["training_dtype"], "bfloat16")
+        self.assertEqual(base["dtype"], "float16")
+
 
 @unittest.skipUnless(importlib.util.find_spec("torch"), "Torch needed for CPU tensor mask checks")
 class MaskTests(unittest.TestCase):
@@ -159,3 +165,31 @@ class MaskTests(unittest.TestCase):
     def test_reject_unimplemented_visual_batching(self):
         with self.assertRaisesRegex(ValueError, "microbatch"):
             AnswerOnlyCollator(self.processor, 4096)([self.row, self.row])
+
+    def test_gradient_report_distinguishes_missing_zero_nonfinite_and_valid(self):
+        import torch
+        model = torch.nn.Linear(2, 2, bias=False)
+        self.assertEqual(gradient_report(model)["status"], "missing")
+        model.weight.grad = torch.zeros_like(model.weight)
+        self.assertEqual(gradient_report(model)["status"], "all_zero")
+        for value in (float("nan"), float("inf")):
+            model.weight.grad = torch.full_like(model.weight, value)
+            report = gradient_report(model)
+            self.assertEqual(report["status"], "nonfinite")
+            self.assertEqual(report["nonfinite_examples"], ["weight"])
+        model.weight.grad = torch.ones_like(model.weight)
+        report = gradient_report(model)
+        self.assertEqual(report["status"], "finite_nonzero")
+        self.assertEqual(report["finite_max_abs"], 1.0)
+
+    def test_gradient_report_ignores_frozen_parameters_and_allows_partial_zero(self):
+        import torch
+        model = torch.nn.Sequential(torch.nn.Linear(2, 2), torch.nn.Linear(2, 2))
+        for parameter in model[0].parameters():
+            parameter.requires_grad_(False)
+        model[1].weight.grad = torch.ones_like(model[1].weight)
+        model[1].bias.grad = torch.zeros_like(model[1].bias)
+        report = gradient_report(model)
+        self.assertEqual(report["status"], "finite_nonzero")
+        self.assertEqual(report["trainable_tensors"], 2)
+        self.assertEqual(report["nonzero_tensors"], 1)

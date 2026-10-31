@@ -22,7 +22,7 @@ git rev-parse HEAD > runs/logs/peft-code-commit.txt
 git status --short > runs/logs/peft-code-status.txt
 ```
 
-沿用已验证的PyTorch 2.6.0+cu124、Transformers 4.57.1、Accelerate 1.15.0，新增固定PEFT 0.17.1；安装需要联网，之后模型从原缓存离线加载。已有同名环境时直接激活，不重复create。若当前环境不是原GPU评测环境，应先核对torch CUDA版本，requirements-training.txt不会替你安装CUDA版torch。
+沿用已验证的PyTorch 2.6.0+cu124、Transformers 4.57.1、Accelerate 1.15.0，新增固定PEFT 0.17.1；安装需要联网，之后模型从原缓存离线加载。已有同名环境时直接激活，不重复create。若当前环境不是原GPU评测环境，应先核对torch CUDA版本，requirements-training.txt不会替你安装CUDA版torch。训练只允许一张可见GPU，A800上两个模型均使用BF16，LoRA参数保留FP32；基础评测的精度配置不变。
 
 先检查文件，不加载权重、不占GPU：
 
@@ -121,6 +121,7 @@ LLaVA替换路径中的qwen为llava。日志会先逐批显示token/mask检查�
 | evaluation-config.json | 自动生成，指向基础模型固定revision和本地adapter，无需手填权重路径 |
 | supervision-checks.json | 每条样本的输入长度、prompt长度和监督token数，不保存完整推理过程 |
 | trainable-parameters.json | 实际语言层LoRA模块与可训练参数数目 |
+| gradient-diagnostics.json | 首次有效梯度确认前各步的缺失、非有限、全零或有效状态及数量 |
 | checkpoint-*/ | 每轮训练状态，可用于未完成训练的续跑 |
 | *-eval/evaluation/ | Accuracy、Macro-F1、混淆矩阵、逐题结果与错误表 |
 
@@ -128,7 +129,7 @@ LLaVA替换路径中的qwen为llava。日志会先逐批显示token/mask检查�
 
 ## 6 配置与续跑
 
-两个JSON位于configs/training/，共用r16、alpha32、dropout0.05、语言注意力q/k/v/o投影、batch1累计8、学习率5e-5、3轮。视觉编码器、多模态投影器与基础语言权重均冻结；Qwen BF16、LLaVA FP16，沿用基础评测的processor和聊天模板。不量化、不全参训练。
+两个JSON位于configs/training/，共用r16、alpha32、dropout0.05、语言注意力q/k/v/o投影、batch1累计8、学习率5e-5、3轮。视觉编码器、多模态投影器与基础语言权重均冻结。training_dtype独立控制训练加载与混合精度，A800上两者均为bfloat16，可选float32；LoRA参数保持FP32。原基础推理配置仍为Qwen BF16、LLaVA FP16，沿用各自processor和聊天模板。不量化、不全参训练，训练精度单独记录在run.json与适配器元数据中。
 
 按**60条验证集eval_loss最低**选择checkpoint，目前不是按生成分类Macro-F1选优；70条只在训练方案固定后评测。来源标签噪声、训练与评测题材/标注方式差异可能影响提升。当前max_length4096是长度检查上限，超过就报错，绝不截断图片或答案；调高上限前确认显存，并另取新输出目录。
 
@@ -153,3 +154,34 @@ nohup python -u scripts/train_lora.py \
 LoRA模块选择、加载与保存依据[PEFT官方LoRA说明](https://huggingface.co/docs/peft/v0.17.0/en/package_reference/lora)和[0.17.1实现](https://github.com/huggingface/peft/blob/v0.17.1/src/peft/peft_model.py)；训练入口依据[Transformers 4.57.1 Trainer](https://github.com/huggingface/transformers/blob/v4.57.1/src/transformers/trainer.py)。固定版本用于沿用现有栈，不宣称是最新版。
 
 本地已通过真实300/60数据的两模型check-only、合成数据泄漏/篡改检查、CPU张量的答案mask测试和适配器身份/内容指纹检查。没有下载7B权重或调用收费API，A800上的真实两步训练、完整训练、权重保存后推理仍待服务器实测；当前没有优化分数。
+
+## 已回传试跑结果与LLaVA重跑
+
+2026-10-31用户日志确认：Qwen的2步smoke有有限非零梯度并显示Training completed和adapter路径，训练及保存已完成，不是完整3轮训练，也尚未验证重新加载。想确认进程是否退出，可执行：
+
+```bash
+ps -p "$(cat runs/logs/qwen-lora-smoke-v1.pid)" -o pid,etime,args
+```
+
+只剩表头表示该PID不再运行；若有进程行，核对args确为本次Qwen任务，防止PID复用。run.json中的completed表示训练脚本记录成功，不代表已经做了70条评测。
+
+LLaVA旧版在首次反向检查报错；旧信息混合了missing/nonfinite/zero，不能据此确定是哪一种。FP16数值溢出是候选原因，尚未用梯度诊断验证。现已切换BF16训练，细分诊断；首个批次全零时可继续检查，最多8次，结束时仍无有效梯度则失败且不保存成功适配器。NaN/Inf或全部缺失梯度仍立即报错，不删除检查。
+
+拉取更新后，保留失败的v1目录，以新目录重试：
+
+```bash
+git pull origin main
+CUDA_DEVICE_ORDER=PCI_BUS_ID \
+CUDA_VISIBLE_DEVICES=2 \
+HF_HOME=/data/X-D-Lab/ty/.cache/huggingface \
+HF_HUB_OFFLINE=1 \
+nohup python -u scripts/train_lora.py \
+  --config configs/training/llava_lora.json \
+  --out runs/llava-lora-smoke-v2 --smoke \
+  >> runs/logs/llava-lora-smoke-v2.log 2>&1 < /dev/null &
+echo $! > runs/logs/llava-lora-smoke-v2.pid
+```
+
+当前改动通过57项本地测试，BF16 LLaVA重跑尚待服务器确认。若再次失败，保留同目录gradient-diagnostics.json和run.json；不使用--resume恢复旧代码签名下的失败smoke。
+
+图像处理器fast/slow提示不等于失败，当前记录实际processor类型，不在这次修复中切换处理器，避免另引预处理变化。Trainer的multiple devices提示在存在hf_device_map时就会出现，并不能单凭此句确认多卡；本入口现在要求只有一张可见卡，并记录实际映射。token对齐是配置ID同步提示。离线PEFT的vocabulary warning表示无法查询默认分支配置，不等于保存失败；最终导出已显式关闭无需保存的冻结embedding，并核对词表大小未变。
