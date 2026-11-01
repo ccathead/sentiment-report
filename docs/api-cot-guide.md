@@ -10,7 +10,7 @@
 
 ## 启动
 
-在服务器项目根目录、已有API运行环境中执行。沿用之前有效的DMX_API_KEY环境变量或项目.env配置；不要将密钥写入命令或提交Git。API推理不需要选GPU，也不需要模型缓存/离线设置。
+在服务器项目根目录、已有API运行环境中执行。.env必须显式通过--env-file .env加载，程序不会自动读取；其中变量名应为DMX_API_KEY，与两份配置中的api_key_env一致。已导出的同名环境变量优先于.env；若之前导出了空值，可先执行unset DMX_API_KEY，再通过.env加载。不要将密钥写入命令或提交Git。API推理不需要选GPU，也不需要模型缓存/离线设置。
 
 以下按用户要求直接完整跑固定评测集datasets/mvsa_eval_v1的70条，完成一个模型的推理和自动评分后再启动下一个。此轮属于固定评测集上的探索比较；若根据结果修改提示，后续不能声称该评测集是未接触的独立测试集。原训练300/验证60条不变，本轮不读取其标签。
 
@@ -18,6 +18,7 @@
 mkdir -p runs/logs
 nohup python -u scripts/experiment.py run-all \
   --config configs/dmx-deepseek.json \
+  --env-file .env \
   --prompt cot_v1 \
   --out runs/deepseek-all-cot-v1 \
   >> runs/logs/deepseek-all-cot-v1.log 2>&1 < /dev/null &
@@ -36,6 +37,7 @@ cat runs/deepseek-all-cot-v1/evaluation/summary.md
 ```bash
 nohup python -u scripts/experiment.py run-all \
   --config configs/dmx-kimi.json \
+  --env-file .env \
   --prompt cot_v1 \
   --out runs/kimi-all-cot-v1 \
   >> runs/logs/kimi-all-cot-v1.log 2>&1 < /dev/null &
