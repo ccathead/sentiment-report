@@ -152,4 +152,4 @@ LLaVA 续跑同理：替换配置、结果目录、日志与 PID 名称，保留
 
 当前只有训练300条、验证60条、评测70条。基础评测和微调后评测都完整读取同一70条评测集；旧分组只保留在原始文件中供历史结果追溯，不再作为运行步骤。这70条此前已经查看，报告中记为固定回归评测，不称为盲测结果。
 
-本页是未微调基础模型的评测入口。训练及LoRA评测见[PEFT指南](peft-guide.md)，安装和API配置见[环境与API参考](experiment-reference.md)。
+本页是未微调基础模型的评测入口。训练及LoRA评测见[PEFT指南](peft-guide.md)，安装和API配置见[环境与API参考](experiment-reference.md)，DeepSeek/Kimi提示优化命令见[API分步图文判断测试](api-cot-guide.md)。
